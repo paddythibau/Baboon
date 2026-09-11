@@ -9298,17 +9298,18 @@ mod tests {
 
     #[test]
     fn favorite_folder_explorer_path_stays_bound_to_its_rendered_tags_root() {
-        let rendered = Path::new(r"D:\HREK\tags\objects\characters");
+        let windows_rendered = Path::new(r"D:\HREK\tags\objects\characters");
         assert_eq!(
-            loose_folder_explorer_path(Path::new(r"C:\OtherKit\tags"), rendered),
-            rendered
+            loose_folder_explorer_path(Path::new(r"C:\OtherKit\tags"), windows_rendered),
+            windows_rendered
         );
+
+        let native_tags_root = std::env::temp_dir().join("baboon-hrek").join("tags");
+        let native_relative = Path::new("objects").join("characters");
+        let native_rendered = native_tags_root.join(&native_relative);
         assert_eq!(
-            loose_folder_explorer_path(
-                Path::new(r"D:\HREK\tags"),
-                Path::new(r"objects\characters")
-            ),
-            rendered
+            loose_folder_explorer_path(&native_tags_root, &native_relative),
+            native_rendered
         );
     }
 
