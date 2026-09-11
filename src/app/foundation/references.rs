@@ -449,6 +449,12 @@ pub(in crate::app) fn geometry_import_verb(
     let group_name = names
         .name_for(group_tag)
         .or_else(|| blam_tags::paths::group_tag_to_extension(group_tag))?;
+    geometry_import_verb_for_group_name(group_name)
+}
+
+pub(in crate::app) fn geometry_import_verb_for_group_name(
+    group_name: &str,
+) -> Option<&'static str> {
     match group_name {
         "render_model" => Some("render"),
         "collision_model" => Some("collision"),

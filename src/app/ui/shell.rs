@@ -25,7 +25,8 @@ impl Baboon {
             }))
             .show(ctx, |ui| {
                 egui::menu::bar(ui, |ui| {
-                    ui.menu_button("File", |ui| {
+                    aligned_menu_button(ui, "File", |ui| {
+                        style_list_menu(ui);
                         if ui.button("New Tag...").clicked() {
                             ui.close_menu();
                             self.open_new_tag_dialog();
@@ -133,11 +134,19 @@ impl Baboon {
                             ui.close_menu();
                             self.open_loaded_data_folder();
                         }
-                        let mut recent_action = None;
-                        ui.menu_button("Recent Folders", |ui| {
-                            recent_action = draw_recent_folders_menu(ui, &self.recent_folders);
-                        });
+                        let recent_action = right_opening_menu_button(
+                            ui,
+                            "Recent Folders",
+                            280.0,
+                            |ui| {
+                                style_list_menu(ui);
+                                draw_recent_folders_menu(ui, &self.recent_folders)
+                            },
+                        )
+                        .inner
+                        .flatten();
                         if let Some(action) = recent_action {
+                            ui.close_menu();
                             self.apply_recent_action(action, ctx);
                         }
                         ui.separator();
@@ -353,7 +362,8 @@ impl Baboon {
                             ui.close_menu();
                         }
                     });
-                    ui.menu_button("Edit", |ui| {
+                    aligned_menu_button(ui, "Edit", |ui| {
+                        style_list_menu(ui);
                         if ui
                             .add_enabled(
                                 self.can_undo_current(),
@@ -427,7 +437,8 @@ impl Baboon {
                             }
                         }
                     });
-                    ui.menu_button("Tools", |ui| {
+                    aligned_menu_button(ui, "Tools", |ui| {
+                        style_list_menu(ui);
                         if ui.button("Run Tool...").clicked() {
                             ui.close_menu();
                             self.tool_commands.open = true;
@@ -533,7 +544,8 @@ impl Baboon {
                             self.keyword_chooser_open = true;
                         }
                     });
-                    ui.menu_button("View", |ui| {
+                    aligned_menu_button(ui, "View", |ui| {
+                        style_list_menu(ui);
                         // The browser view belongs to a workspace, so this
                         // menu shows and sets the focused kit's — matching the
                         // Folders/Groups buttons in that kit's own toolbar.
@@ -553,17 +565,32 @@ impl Baboon {
                             ui.close_menu();
                         }
                         ui.separator();
-                        ui.menu_button(format!("Sort by: {}", kit.browser_sort.label()), |ui| {
-                            for option in BrowserSort::ALL {
-                                if ui
-                                    .selectable_label(kit.browser_sort == option, option.label())
-                                    .clicked()
-                                {
-                                    kit.browser_sort = option;
-                                    ui.close_menu();
+                        let selected_sort = right_opening_menu_button(
+                            ui,
+                            format!("Sort by: {}", kit.browser_sort.label()),
+                            220.0,
+                            |ui| {
+                                style_list_menu(ui);
+                                for option in BrowserSort::ALL {
+                                    if ui
+                                        .selectable_label(
+                                            kit.browser_sort == option,
+                                            option.label(),
+                                        )
+                                        .clicked()
+                                    {
+                                        return Some(option);
+                                    }
                                 }
-                            }
-                        });
+                                None
+                            },
+                        )
+                        .inner
+                        .flatten();
+                        if let Some(option) = selected_sort {
+                            kit.browser_sort = option;
+                            ui.close_menu();
+                        }
                         ui.separator();
                         ui.checkbox(&mut self.show_browser_prefixes, "Show [tag]/[folder]");
                         ui.checkbox(&mut self.show_block_sizes, "Show block sizes");
@@ -592,7 +619,8 @@ impl Baboon {
                             ui.close_menu();
                         }
                     });
-                    ui.menu_button("Help", |ui| {
+                    aligned_menu_button(ui, "Help", |ui| {
+                        style_list_menu(ui);
                         if ui.button("About...").clicked() {
                             self.help_panel_tab = HelpPanelTab::About;
                             self.about_open = true;
@@ -631,7 +659,7 @@ impl Baboon {
                             }
                         }
                     });
-                    ui.menu_button("Editing Kits", |ui| {
+                    aligned_menu_button(ui, "Editing Kits", |ui| {
                         ui.set_min_width(EDITING_KIT_MENU_MIN_WIDTH);
                         let entries = visible_editing_kit_menu_entries(
                             &self.custom_editing_kit_profiles,

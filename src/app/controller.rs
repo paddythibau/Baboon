@@ -599,6 +599,14 @@ fn explorer_select_args(path: &Path) -> [std::ffi::OsString; 2] {
     ]
 }
 
+fn loose_folder_explorer_path(tags_root: &Path, requested: &Path) -> PathBuf {
+    if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        tags_root.join(requested)
+    }
+}
+
 /// What a stashed overlay is, for the export review.
 ///
 /// Pure so the rule can be tested without a mounted game, which is what
@@ -3692,14 +3700,6 @@ impl Baboon {
                 label,
                 open_in_new_tab,
             } => {
-                let needs_scan = self.kits[self.active]
-                    .source
-                    .as_ref()
-                    .is_some_and(|source| {
-                        matches!(source.source, TagSource::LooseFolder { .. })
-                            && source.all_entries.is_empty()
-                    })
-                    && !self.kits[self.active].scanning_entries;
                 let matching_key = if open_in_new_tab {
                     None
                 } else {
@@ -3763,14 +3763,12 @@ impl Baboon {
                 let selected = self.kits[self.active].selected_key.clone();
                 self.kits[self.active].open_tag_pane(&key);
                 self.kits[self.active].selected_key = selected;
-                if needs_scan {
-                    self.begin_scan_all_entries(ctx);
-                }
             }
             BrowserAction::ToggleFolderFavorite(rel_path) => self.toggle_folder_favorite(&rel_path),
             BrowserAction::Select(key) => self.select_entry(key, ctx),
             BrowserAction::ToggleFavorite(key) => self.toggle_favorite(&key),
             BrowserAction::CopyTagName(key) => self.copy_tag_name(&key, &ctx),
+            BrowserAction::CopyFolderPath(path) => self.copy_folder_path(&path, &ctx),
             BrowserAction::DumpJson(key) => self.begin_export_json(key, ctx),
             BrowserAction::OpenInExplorer(key) => self.open_entry_in_explorer(&key),
             BrowserAction::DumpLoadedFolderJson(keys) => {
@@ -3815,6 +3813,7 @@ impl Baboon {
             BrowserAction::ExtractHlslIncludeFolder(keys) => {
                 self.begin_extract_hlsl_include_folder(keys, ctx)
             }
+            BrowserAction::ReimportGeometry(key) => self.begin_reimport_geometry(&key),
             BrowserAction::ExtractContainerFolderTags { label, keys } => {
                 self.begin_extract_container_folder_tags(label, keys)
             }
@@ -3849,6 +3848,12 @@ impl Baboon {
             return;
         };
         let copied_path = crate::format::to_native_path_string(&entry.display_path);
+        ctx.output_mut(|output| output.copied_text = copied_path.clone());
+        self.status = format!("Copied {copied_path}");
+    }
+
+    pub(super) fn copy_folder_path(&mut self, path: &Path, ctx: &egui::Context) {
+        let copied_path = crate::format::to_native_path_string(&path.to_string_lossy());
         ctx.output_mut(|output| output.copied_text = copied_path.clone());
         self.status = format!("Copied {copied_path}");
     }
@@ -3936,7 +3941,8 @@ impl Baboon {
             self.status = "This workspace has no tags folder on disk".to_owned();
             return;
         };
-        self.open_folder_in_explorer(root.join(rel_path), "Tag");
+        let path = loose_folder_explorer_path(&root, rel_path);
+        self.open_folder_in_explorer(path, "Tag");
     }
 
     pub(super) fn open_folder_in_explorer(&mut self, path: PathBuf, label: &str) {
@@ -8339,6 +8345,27 @@ impl Baboon {
         self.spawn_terminal_command(command, ctx.clone());
     }
 
+    /// Queue the same editing-kit geometry import that a compatible tag
+    /// reference offers, deriving the tool source folder from the clicked tag.
+    pub(super) fn begin_reimport_geometry(&mut self, key: &str) {
+        let Some(entry) = self.entry_for_key(key).cloned() else {
+            self.status = "The tag is no longer in the browser".to_owned();
+            return;
+        };
+        if !matches!(entry.location, TagEntryLocation::LooseFile(_)) {
+            self.status = "Reimport requires a loose editing-kit tag".to_owned();
+            return;
+        }
+        let Some(verb) = geometry_import_verb(self.names(), entry.group_tag) else {
+            self.status = "This tag type does not support reimport".to_owned();
+            return;
+        };
+        self.pending_tool_import = Some(ToolImportRequest {
+            verb,
+            source_dir: model_source_dir(&entry_rel_path(&entry)),
+        });
+    }
+
     /// Starts potentially expensive source or export work off the UI thread.
     /// The worker owns cloned inputs and reports status without mutating UI state.
     pub(super) fn begin_reimport_bitmap(&mut self, key: String, ctx: egui::Context) {
@@ -9249,6 +9276,22 @@ mod tests {
                 std::ffi::OsString::from("/select,"),
                 path.as_os_str().to_owned(),
             ]
+        );
+    }
+
+    #[test]
+    fn favorite_folder_explorer_path_stays_bound_to_its_rendered_tags_root() {
+        let rendered = Path::new(r"D:\HREK\tags\objects\characters");
+        assert_eq!(
+            loose_folder_explorer_path(Path::new(r"C:\OtherKit\tags"), rendered),
+            rendered
+        );
+        assert_eq!(
+            loose_folder_explorer_path(
+                Path::new(r"D:\HREK\tags"),
+                Path::new(r"objects\characters")
+            ),
+            rendered
         );
     }
 

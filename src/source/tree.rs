@@ -41,6 +41,34 @@ pub fn build_tree_beneath(entries: &[TagEntry], folder: &Path) -> TagTree {
     }
 }
 
+/// Build the initially visible portion of a loose folder tab without scanning
+/// its descendants. Direct tags are indexed now; each child remains lazy and
+/// is materialized only when the user expands it.
+pub fn build_lazy_folder_tree_beneath(
+    root: &Path,
+    folder: &Path,
+    entries: &mut Vec<TagEntry>,
+    names: &TagNameIndex,
+) -> Result<TagTree> {
+    let children = list_direct_child_nodes(root, folder)?;
+    let mut direct_entries = scan_folder_direct_entries(root, &root.join(folder), names)?;
+    direct_entries.sort_by(|a, b| natural_key(&a.display_path).cmp(&natural_key(&b.display_path)));
+
+    let mut indices = Vec::with_capacity(direct_entries.len());
+    for entry in direct_entries {
+        if let Some(index) = entries.iter().position(|known| known.key == entry.key) {
+            indices.push(index);
+        } else {
+            indices.push(entries.len());
+            entries.push(entry);
+        }
+    }
+    Ok(TagTree {
+        children,
+        entries: indices,
+    })
+}
+
 /// Build a group tree containing only entries beneath `folder`, while keeping
 /// every stored index pointed at the original `entries` slice.
 pub fn build_group_tree_beneath(entries: &[TagEntry], folder: &Path) -> TagTree {

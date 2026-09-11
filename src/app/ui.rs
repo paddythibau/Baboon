@@ -751,20 +751,25 @@ impl Baboon {
         let commands = monitor_commands_for_game(game);
         let enabled = !commands.is_empty();
         let ctx = ui.ctx().clone();
-        let response = ui
+        let menu = ui
             .add_enabled_ui(enabled, |ui| {
-                ui.menu_button("Monitor", |ui| {
+                right_opening_menu_button(ui, "Monitor", 222.0, |ui| {
+                    style_list_menu(ui);
                     ui.set_min_width(210.0);
                     for command in commands {
                         if ui.button(*command).clicked() {
-                            self.submit_terminal_command(format!("tool {command}"), ctx.clone());
-                            ui.close_menu();
+                            return Some(*command);
                         }
                     }
+                    None
                 })
-                .response
             })
             .inner;
+        if let Some(command) = menu.inner.flatten() {
+            self.submit_terminal_command(format!("tool {command}"), ctx);
+            ui.close_menu();
+        }
+        let response = menu.response;
         if enabled {
             response.on_hover_text("Run monitor command");
         } else {
@@ -776,31 +781,41 @@ impl Baboon {
     /// than one tag at a time.
     fn draw_assets_tools_menu(&mut self, ui: &mut Ui) {
         let enabled = self.source().is_some();
-        let response = ui
+        let menu = ui
             .add_enabled_ui(enabled, |ui| {
-                ui.menu_button("Assets", |ui| {
+                right_opening_menu_button(ui, "Assets", 222.0, |ui| {
+                    style_list_menu(ui);
                     ui.set_min_width(210.0);
                     if ui.button("Bitmap Browser").clicked() {
-                        self.open_bitmap_library();
-                        ui.close_menu();
+                        return Some("bitmap");
                     }
                     if ui.button("Model Browser").clicked() {
-                        self.open_model_library();
-                        ui.close_menu();
+                        return Some("model");
                     }
                     // Baboon's own import pipelines only cover Halo 3 so far,
                     // so the entry only appears there.
                     if self.active_kit_is_halo3() && ui.button("Blam!").clicked() {
-                        // Re-detect on every open: the data folder may have
-                        // changed since the pane was last shown.
-                        self.kits[self.active].blam.scanned_path = None;
-                        self.kits[self.active].open_tag_pane(BLAM_KEY);
-                        ui.close_menu();
+                        return Some("blam");
                     }
+                    None
                 })
-                .response
             })
             .inner;
+        if let Some(asset) = menu.inner.flatten() {
+            match asset {
+                "bitmap" => self.open_bitmap_library(),
+                "model" => self.open_model_library(),
+                "blam" => {
+                    // Re-detect on every open: the data folder may have
+                    // changed since the pane was last shown.
+                    self.kits[self.active].blam.scanned_path = None;
+                    self.kits[self.active].open_tag_pane(BLAM_KEY);
+                }
+                _ => {}
+            }
+            ui.close_menu();
+        }
+        let response = menu.response;
         if !enabled {
             response.on_disabled_hover_text("Load an editing kit to browse its assets");
         }

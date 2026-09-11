@@ -38,6 +38,7 @@ pub fn load_single_file(path: PathBuf, names: &TagNameIndex) -> Result<LoadedSou
     })
 }
 
+
 /// Resolves an editing-kit tags root and prepares lazy folder browsing.
 /// A saved full index may populate `all_entries`, but `entries` remains lazy and
 /// is filled only as browser folders are expanded.
@@ -1859,4 +1860,3 @@ mod mod_export_tests {
         eprintln!("re-saved {rel_path} into its own exported mod");
     }
 }
-

@@ -936,18 +936,7 @@ impl egui_tiles::Behavior<String> for ChimpPaneBehavior<'_> {
             }
             if has_mesh {
                 ui.separator();
-                ui.menu_button("Extract mesh", |ui| {
-                    for format in [
-                        ChimpMeshFormat::Jms,
-                        ChimpMeshFormat::Psk,
-                        ChimpMeshFormat::Pskx,
-                    ] {
-                        if ui.button(format.label()).clicked() {
-                            self.extract_mesh = Some((package.clone(), format));
-                            ui.close_menu();
-                        }
-                    }
-                });
+                chimp_mesh_export_menu(ui, &package, &mut self.extract_mesh);
             }
             if chimp_looks_like_level(&package) {
                 ui.separator();
@@ -6101,19 +6090,11 @@ fn draw_chimp_folder_node(
                     }
                 }
                 if actions.mesh {
-                    ui.menu_button("Extract mesh", |ui| {
-                        for format in [
-                            ChimpMeshFormat::Jms,
-                            ChimpMeshFormat::Psk,
-                            ChimpMeshFormat::Pskx,
-                        ] {
-                            if ui.button(format.label()).clicked() {
-                                clicked =
-                                    Some(ChimpTreeClick::ExtractMesh(package.name.clone(), format));
-                                ui.close_menu();
-                            }
-                        }
-                    });
+                    let mut requested = None;
+                    chimp_mesh_export_menu(ui, &package.name, &mut requested);
+                    if let Some((package, format)) = requested {
+                        clicked = Some(ChimpTreeClick::ExtractMesh(package, format));
+                    }
                 }
                 if actions.level {
                     let mut requested = None;
@@ -6157,18 +6138,25 @@ fn chimp_mesh_export_menu(
     package: &str,
     requested: &mut Option<(String, ChimpMeshFormat)>,
 ) {
-    ui.menu_button("Extract mesh", |ui| {
+    let format = right_opening_menu_button(ui, "Extract mesh", 220.0, |ui| {
+        style_list_menu(ui);
         for format in [
             ChimpMeshFormat::Jms,
             ChimpMeshFormat::Psk,
             ChimpMeshFormat::Pskx,
         ] {
             if ui.button(format.label()).clicked() {
-                *requested = Some((package.to_owned(), format));
-                ui.close_menu();
+                return Some(format);
             }
         }
-    });
+        None
+    })
+    .inner
+    .flatten();
+    if let Some(format) = format {
+        *requested = Some((package.to_owned(), format));
+        ui.close_menu();
+    }
 }
 
 /// Offered only where it means something: a package with `_Generated_` cells
@@ -6178,18 +6166,25 @@ fn chimp_level_export_menu(
     package: &str,
     requested: &mut Option<(String, ChimpLevelFormat)>,
 ) {
-    ui.menu_button("Export level", |ui| {
+    let selected = right_opening_menu_button(ui, "Export level", 220.0, |ui| {
+        style_list_menu(ui);
         for format in [ChimpLevelFormat::SegmentedUsd, ChimpLevelFormat::Blender] {
             if ui
                 .button(format.label())
                 .on_hover_text(format.summary())
                 .clicked()
             {
-                *requested = Some((package.to_owned(), format));
-                ui.close_menu();
+                return Some(format);
             }
         }
-    });
+        None
+    })
+    .inner
+    .flatten();
+    if let Some(format) = selected {
+        *requested = Some((package.to_owned(), format));
+        ui.close_menu();
+    }
 }
 
 use super::controller::{
@@ -6671,10 +6666,14 @@ fn draw_chimp_property_block(
             })
             .collect();
         if !omitted.is_empty() {
-            ui.menu_button(
+            let added = right_opening_menu_button(
+                ui,
                 format!("Add omitted property… ({})", omitted.len()),
+                300.0,
                 |ui| {
+                    style_list_menu(ui);
                     ui.set_max_height(360.0);
+                    let mut added = false;
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         for (name, slot, ty) in &omitted {
                             let label = if slot.array_index == 0 {
@@ -6695,12 +6694,18 @@ fn draw_chimp_property_block(
                                 .is_ok()
                             {
                                 changed = true;
-                                ui.close_menu();
+                                added = true;
                             }
                         }
                     });
+                    added
                 },
-            );
+            )
+            .inner
+            .unwrap_or(false);
+            if added {
+                ui.close_menu();
+            }
             ui.separator();
         }
     }

@@ -15,6 +15,7 @@ pub(in crate::app) enum BrowserAction {
     Select(String),
     ToggleFavorite(String),
     CopyTagName(String),
+    CopyFolderPath(PathBuf),
     DumpJson(String),
     OpenInExplorer(String),
     DumpLoadedFolderJson(Vec<String>),
@@ -65,6 +66,9 @@ pub(in crate::app) enum BrowserAction {
     ExtractMaterialShaderSourceFolder(Vec<String>),
     ExtractHlslIncludeSource(String),
     ExtractHlslIncludeFolder(Vec<String>),
+    /// Rebuild a loose geometry/animation tag from its editing-kit data files
+    /// using the same tool command offered beside compatible tag references.
+    ReimportGeometry(String),
     /// Write every shipped tag beneath one container folder to a chosen folder,
     /// laid out like an editing kit. The narrow-scope twin of File → Extract All
     /// Tags to Folder, and it shares that action's worker, progress and cancel.

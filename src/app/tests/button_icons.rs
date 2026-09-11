@@ -35,6 +35,8 @@ fn button_icon_lookup_uses_expected_assets() {
         ButtonIcon::JumpTo,
         ButtonIcon::JumpUp,
         ButtonIcon::Left,
+        ButtonIcon::ListDropdownLeft,
+        ButtonIcon::ListDropdownRight,
         ButtonIcon::Move,
         ButtonIcon::Open,
         ButtonIcon::Opened,
@@ -60,6 +62,14 @@ fn colorized_icon_replaces_current_color() {
     let svg = colorized_icon_svg(ButtonIcon::Open, Color32::from_rgb(1, 2, 3));
     assert!(svg.contains("#010203"));
     assert!(!svg.contains("currentColor"));
+}
+
+#[test]
+fn submenu_directions_use_distinct_assets() {
+    assert_ne!(
+        button_icon_svg(ButtonIcon::ListDropdownLeft),
+        button_icon_svg(ButtonIcon::ListDropdownRight)
+    );
 }
 
 #[test]

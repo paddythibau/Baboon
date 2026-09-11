@@ -543,11 +543,18 @@ impl Baboon {
 
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = PANE_HEADER_ACTION_GAP;
-            icon_menu_button(ui, ButtonIcon::Other, "Other tag actions", |ui| {
-                if let Some(menu_action) = draw_tag_context_menu_contents(ui, entry, None) {
-                    action = Some(menu_action);
-                }
-            });
+            right_aligned_icon_menu_button(
+                ui,
+                ButtonIcon::Other,
+                "Other tag actions",
+                CONTEXT_MENU_WIDTH,
+                |ui| {
+                    if let Some(menu_action) = draw_tag_context_menu_contents(ui, entry, None, true)
+                    {
+                        action = Some(menu_action);
+                    }
+                },
+            );
 
             let favorite_label = if is_favorite { "Favorited" } else { "Favorite" };
             let favorite_icon = if is_favorite {

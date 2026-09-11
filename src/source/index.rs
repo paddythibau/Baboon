@@ -8,6 +8,7 @@ pub fn index_path(game: &str) -> PathBuf {
     app_cache_path(&format!("{game}_index.json"), "Baboon", "baboon")
 }
 
+
 /// Legacy JSON reverse-dependency path. New saves use [`index_db_path`].
 pub fn reverse_dependency_index_path(game: &str) -> PathBuf {
     app_cache_path(
@@ -740,4 +741,3 @@ pub fn field_row_summaries(tag: &TagFile, names: &TagNameIndex, limit: usize) ->
     }
     rows
 }
-
