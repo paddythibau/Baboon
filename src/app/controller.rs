@@ -600,11 +600,28 @@ fn explorer_select_args(path: &Path) -> [std::ffi::OsString; 2] {
 }
 
 fn loose_folder_explorer_path(tags_root: &Path, requested: &Path) -> PathBuf {
-    if requested.is_absolute() {
+    if requested.is_absolute() || looks_like_absolute_windows_path(requested) {
         requested.to_path_buf()
     } else {
         tags_root.join(requested)
     }
+}
+
+/// `Path::is_absolute` follows the host platform, but favorite-folder actions
+/// can carry an Explorer path while this pure helper is exercised by Unix CI.
+/// Recognize the Windows forms explicitly so an already-rooted favorite is
+/// never appended to whichever kit happens to be active.
+fn looks_like_absolute_windows_path(path: &Path) -> bool {
+    let text = path.as_os_str().to_string_lossy();
+    let bytes = text.as_bytes();
+    let drive_absolute = bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'\\' | b'/');
+    let network_or_device_absolute = bytes.len() >= 2
+        && matches!(bytes[0], b'\\' | b'/')
+        && matches!(bytes[1], b'\\' | b'/');
+    drive_absolute || network_or_device_absolute
 }
 
 /// What a stashed overlay is, for the export review.
