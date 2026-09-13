@@ -20,7 +20,7 @@ impl Baboon {
     pub(in crate::app) fn draw_folder_browser_pane(
         &mut self,
         ui: &mut Ui,
-        _ctx: &egui::Context,
+        ctx: &egui::Context,
         kit_index: usize,
         pane_key: &str,
     ) -> Option<BrowserAction> {
@@ -31,17 +31,42 @@ impl Baboon {
 
         self.refresh_modified_tags(kit_index);
         self.refresh_deletable_keys(kit_index);
+        // A loose pane owns a lazy subtree whose indices address the shared
+        // lazy entry vector. Its growth must not rebuild/collapse the pane.
+        // Eager sources still use entry count as cache invalidation.
         let source_len = self.kits[kit_index]
             .source
             .as_ref()
-            .map(|source| source.full_entry_set().len())
+            .map(|source| match source.source {
+                TagSource::LooseFolder { .. } => 0,
+                _ => source.full_entry_set().len(),
+            })
             .unwrap_or(0);
         let generation = self.kits[kit_index].generation;
         if pane.cached_generation != generation || pane.cached_source_len != source_len {
-            if let Some(source) = self.kits[kit_index].source.as_ref() {
-                let entries = source.full_entry_set();
-                pane.tree = crate::source::build_tree_beneath(entries, &pane.rel_path);
-                pane.group_tree = crate::source::build_group_tree_beneath(entries, &pane.rel_path);
+            if let Some(source) = self.kits[kit_index].source.as_mut() {
+                if let TagSource::LooseFolder { root, .. } = &source.source {
+                    let root = root.clone();
+                    let names = source.names.clone();
+                    match crate::source::build_lazy_folder_tree_beneath(
+                        &root,
+                        &pane.rel_path,
+                        &mut source.entries,
+                        &names,
+                    ) {
+                        Ok(tree) => pane.tree = tree,
+                        Err(error) => {
+                            pane.tree = TagTree::default();
+                            self.status = format!("Could not load folder tab: {error}");
+                        }
+                    }
+                    pane.group_tree = TagTree::default();
+                } else {
+                    let entries = source.full_entry_set();
+                    pane.tree = crate::source::build_tree_beneath(entries, &pane.rel_path);
+                    pane.group_tree =
+                        crate::source::build_group_tree_beneath(entries, &pane.rel_path);
+                }
             } else {
                 pane.tree = TagTree::default();
                 pane.group_tree = TagTree::default();
@@ -78,16 +103,15 @@ impl Baboon {
             .as_ref()
             .map(crate::app::controller::scenario_launch_availability)
             .unwrap_or_default();
-        let entries = self.kits[kit_index]
-            .source
-            .as_ref()
-            .map(|source| source.full_entry_set())
-            .unwrap_or_default();
         let mut show_browser_prefixes = self.show_browser_prefixes;
         let mut folders_before_tags = self.folders_before_tags;
         let double_click_to_open = self.double_click_to_open_tags;
         let search_hint = folder_browser_search_hint(&pane.label);
         let mut action = None;
+        let mut need_scan = false;
+        let mut status_update = None;
+        let scanning = self.kits[kit_index].scanning_entries;
+        let source = self.kits[kit_index].source.as_mut();
 
         Frame::none()
             .inner_margin(egui::Margin {
@@ -104,7 +128,27 @@ impl Baboon {
                 set_browser_scenario_launch(ui, scenario_launch);
                 set_browser_is_folder_pane(ui, true);
 
-                draw_folder_pane_header(ui, &mut pane, is_loose, &mut action);
+                let Some(source) = source else {
+                    ui.label(
+                        RichText::new("This folder source is no longer loaded")
+                            .color(subtle_dark()),
+                    );
+                    return;
+                };
+
+                let header_entries = if is_loose {
+                    &source.entries[..]
+                } else {
+                    source.full_entry_set()
+                };
+                draw_folder_pane_header(
+                    ui,
+                    &mut pane,
+                    header_entries,
+                    is_loose,
+                    is_container,
+                    &mut action,
+                );
                 ui.add_space(14.0);
                 ui.separator();
                 ui.add_space(10.0);
@@ -149,55 +193,105 @@ impl Baboon {
 
                 let filter = pane.filter.trim();
                 let groups_mode = pane.mode == BrowserMode::Groups;
-                let (tree, entries) = if filter.is_empty() {
-                    (
-                        if groups_mode {
-                            &pane.group_tree
+                let needs_complete_index = is_loose && (groups_mode || !filter.is_empty());
+                if needs_complete_index && source.all_entries.is_empty() {
+                    need_scan = !scanning;
+                    ui.label(
+                        RichText::new(if scanning {
+                            "Indexing tags…"
                         } else {
-                            &pane.tree
-                        },
-                        entries,
-                    )
-                } else {
-                    pane.filter_cache.refresh_beneath(
-                        pane.cached_generation,
-                        filter,
-                        entries,
-                        groups_mode,
-                        &pane.rel_path,
+                            "Preparing tag index…"
+                        })
+                        .color(subtle_dark())
+                        .small(),
                     );
-                    (
-                        &pane.filter_cache.tree,
-                        pane.filter_cache.entries.as_slice(),
-                    )
-                };
-                ScrollArea::vertical()
-                    .id_salt(("folder_pane", pane_key))
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        if entries.is_empty() {
-                            ui.label(RichText::new("No matching tags").color(subtle_dark()));
-                            return;
-                        }
-                        let tree_action = draw_tree(
-                            ui,
-                            tree,
+                } else if is_loose && !groups_mode && filter.is_empty() {
+                    let TagSource::LooseFolder { root, .. } = &source.source else {
+                        unreachable!("is_loose is derived from this source")
+                    };
+                    let root = root.clone();
+                    let names = source.names.clone();
+                    ScrollArea::vertical()
+                        .id_salt(("folder_pane", pane_key))
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            let tree_action = draw_tree_lazy(
+                                ui,
+                                &mut pane.tree,
+                                &mut source.entries,
+                                &mut pane.group_tree,
+                                &root,
+                                &names,
+                                selected.as_deref(),
+                                "",
+                                show_browser_prefixes,
+                                double_click_to_open,
+                                &mut status_update,
+                                None,
+                                pane.sort,
+                                folders_before_tags,
+                                Some(&favorite_keys),
+                            );
+                            if action.is_none() {
+                                action = tree_action;
+                            }
+                        });
+                } else {
+                    let entries = source.full_entry_set();
+                    if groups_mode {
+                        pane.group_tree =
+                            crate::source::build_group_tree_beneath(entries, &pane.rel_path);
+                    }
+                    let (tree, visible_entries) = if filter.is_empty() {
+                        (
+                            if groups_mode {
+                                &pane.group_tree
+                            } else {
+                                &pane.tree
+                            },
                             entries,
-                            selected.as_deref(),
+                        )
+                    } else {
+                        pane.filter_cache.refresh_beneath(
+                            pane.cached_generation,
                             filter,
-                            show_browser_prefixes,
-                            double_click_to_open,
+                            entries,
                             groups_mode,
-                            None,
-                            pane.sort,
-                            !groups_mode && folders_before_tags,
-                            is_loose.then_some(&favorite_keys),
-                            is_container,
+                            &pane.rel_path,
                         );
-                        if action.is_none() {
-                            action = tree_action;
-                        }
-                    });
+                        (
+                            &pane.filter_cache.tree,
+                            pane.filter_cache.entries.as_slice(),
+                        )
+                    };
+                    ScrollArea::vertical()
+                        .id_salt(("folder_pane", pane_key))
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            if visible_entries.is_empty() {
+                                ui.label(RichText::new("No matching tags").color(subtle_dark()));
+                                return;
+                            }
+                            let tree_action = draw_tree(
+                                ui,
+                                tree,
+                                visible_entries,
+                                selected.as_deref(),
+                                filter,
+                                show_browser_prefixes,
+                                double_click_to_open,
+                                groups_mode,
+                                None,
+                                pane.sort,
+                                !groups_mode && folders_before_tags,
+                                is_loose.then_some(&favorite_keys),
+                                is_container,
+                            );
+                            if action.is_none() {
+                                action = tree_action;
+                            }
+                        });
+                }
             });
 
         self.show_browser_prefixes = show_browser_prefixes;
@@ -218,6 +312,13 @@ impl Baboon {
         self.kits[kit_index]
             .folder_browsers
             .insert(pane_key.to_owned(), pane);
+        if let Some(status) = status_update {
+            self.status = status;
+        }
+        if need_scan {
+            self.active = kit_index;
+            self.begin_scan_all_entries(ctx.clone());
+        }
         action
     }
 
@@ -401,6 +502,14 @@ impl Baboon {
                     let (favorite_action, favorites_visible) = draw_favorites(
                         ui,
                         &active_favorite_entries,
+                        // Favorites follow the visible folder browser's lazy
+                        // boundary; a saved/global index must not make an
+                        // unopened favorite look materialized.
+                        &source.entries,
+                        match &source.source {
+                            TagSource::LooseFolder { root, .. } => Some(root.as_path()),
+                            _ => None,
+                        },
                         selected.as_deref(),
                         &filter,
                         show_prefixes,
@@ -589,6 +698,7 @@ fn browser_toolbar_controls(
         *mode = BrowserMode::Groups;
     }
     icon_menu_button(ui, ButtonIcon::Sort, "Sort", |ui| {
+        style_list_menu(ui);
         for option in BrowserSort::ALL {
             if ui
                 .selectable_label(*sort == option, option.label())
@@ -600,6 +710,7 @@ fn browser_toolbar_controls(
         }
     });
     icon_menu_button(ui, ButtonIcon::Other, "Other browser options", |ui| {
+        style_list_menu(ui);
         ui.checkbox(show_prefixes, "Show prefixes");
         ui.checkbox(folders_before_tags, "Folders before tags");
     });
@@ -628,7 +739,9 @@ fn draw_folder_browser_controls(
 fn draw_folder_pane_header(
     ui: &mut Ui,
     pane: &mut FolderBrowserState,
+    entries: &[TagEntry],
     is_loose: bool,
+    is_container: bool,
     action: &mut Option<BrowserAction>,
 ) {
     let normalized = pane.rel_path.to_string_lossy().replace('\\', "/");
@@ -701,7 +814,9 @@ fn draw_folder_pane_header(
                                     draw_folder_header_common_actions(
                                         ui,
                                         pane,
+                                        entries,
                                         is_loose,
+                                        is_container,
                                         is_favorite,
                                         action,
                                     );
@@ -709,7 +824,15 @@ fn draw_folder_pane_header(
                             );
                         });
                     } else {
-                        draw_folder_header_common_actions(ui, pane, is_loose, is_favorite, action);
+                        draw_folder_header_common_actions(
+                            ui,
+                            pane,
+                            entries,
+                            is_loose,
+                            is_container,
+                            is_favorite,
+                            action,
+                        );
                         ui.add_space(PANE_HEADER_SECTION_GAP);
                         draw_folder_header_launcher(ui, pane, is_loose, action);
                     }
@@ -730,7 +853,15 @@ fn draw_folder_pane_header(
             Vec2::new(ui.available_width(), BUTTON_HEIGHT),
             egui::Layout::right_to_left(egui::Align::Center),
             |ui| {
-                draw_folder_header_common_actions(ui, pane, is_loose, is_favorite, action);
+                draw_folder_header_common_actions(
+                    ui,
+                    pane,
+                    entries,
+                    is_loose,
+                    is_container,
+                    is_favorite,
+                    action,
+                );
             },
         );
     }
@@ -739,29 +870,61 @@ fn draw_folder_pane_header(
 fn draw_folder_header_common_actions(
     ui: &mut Ui,
     pane: &mut FolderBrowserState,
+    entries: &[TagEntry],
     is_loose: bool,
+    is_container: bool,
     is_favorite: bool,
     action: &mut Option<BrowserAction>,
 ) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = PANE_HEADER_ACTION_GAP;
-        icon_menu_button(ui, ButtonIcon::Other, "Other folder actions", |ui| {
-            if is_loose {
-                if let Some(menu_action) =
-                    loose_folder_transfer_menu_items(ui, &pane.rel_path, &pane.label)
-                {
+        right_aligned_icon_menu_button(
+            ui,
+            ButtonIcon::Other,
+            "Other folder actions",
+            CONTEXT_MENU_WIDTH,
+            |ui| {
+                style_tag_context_menu(ui);
+                if is_loose {
+                    if let Some(menu_action) =
+                        loose_folder_transfer_menu_items(ui, &pane.rel_path, &pane.label)
+                    {
+                        action.replace(menu_action);
+                    }
+                    context_menu_separator(ui);
+                }
+                if context_menu_button(ui, "Copy Folder Path").clicked() {
+                    action.replace(BrowserAction::CopyFolderPath(pane.rel_path.clone()));
+                    ui.close_menu();
+                }
+                context_menu_separator(ui);
+                let extract_label = pane.rel_path.to_string_lossy().replace('\\', "/");
+                let extract_label = if extract_label.is_empty() {
+                    pane.label.clone()
+                } else {
+                    extract_label
+                };
+                if let Some(menu_action) = folder_tree_extract_menu_button(
+                    ui,
+                    &pane.tree,
+                    entries,
+                    extract_label,
+                    is_container,
+                    is_loose,
+                    true,
+                ) {
                     action.replace(menu_action);
                 }
                 context_menu_separator(ui);
-            }
-            if ui.button("Dump folder to JSON...").clicked() {
-                action.replace(BrowserAction::DumpLooseFolderJson {
-                    rel_path: pane.rel_path.clone(),
-                    label: pane.label.clone(),
-                });
-                ui.close_menu();
-            }
-        });
+                if context_menu_button(ui, "Dump folder to JSON...").clicked() {
+                    action.replace(BrowserAction::DumpLooseFolderJson {
+                        rel_path: pane.rel_path.clone(),
+                        label: pane.label.clone(),
+                    });
+                    ui.close_menu();
+                }
+            },
+        );
         let favorite_icon = if is_favorite {
             ButtonIcon::FavouriteFilled
         } else {

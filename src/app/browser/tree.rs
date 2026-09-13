@@ -3,6 +3,8 @@
 
 use super::*;
 
+pub(in crate::app) const CONTEXT_MENU_WIDTH: f32 = 340.0;
+
 /// A pending "reveal in tree" request threaded through the tree draw: it force-
 /// opens the folder nodes along `remaining` (ancestor labels not yet descended)
 /// and scrolls the matching leaf (`key`) into view. One-shot — cleared by the
@@ -113,29 +115,144 @@ pub(in crate::app) fn hover_tooltip_beside_pointer(ui: &Ui, response: &egui::Res
 }
 
 pub(in crate::app) fn context_menu_button(ui: &mut Ui, label: &str) -> egui::Response {
-    let text = RichText::new(label).color(text_dark());
-    let button = match context_menu_icon(label) {
-        Some(icon) => {
-            egui::Button::image_and_text(button_icon_image(ui, icon, text_dark(), 16.0), text)
+    let size = Vec2::new(ui.available_width().max(1.0), 28.0);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
+    });
+
+    if ui.is_rect_visible(rect) {
+        let visuals = ui.style().interact(&response);
+        if response.hovered() || response.has_focus() {
+            ui.painter().rect(
+                rect.expand(visuals.expansion),
+                visuals.rounding,
+                visuals.bg_fill,
+                Stroke::NONE,
+            );
         }
-        None => egui::Button::new(text),
-    };
-    ui.add_sized([ui.available_width().max(280.0), 28.0], button)
+
+        let enabled = ui.is_enabled();
+        let color = if enabled {
+            text_dark()
+        } else {
+            ui.visuals().widgets.noninteractive.fg_stroke.color
+        };
+        let mut text_x = rect.left() + 8.0;
+        if let Some(image) = context_menu_app_icon(label) {
+            let icon_rect = egui::Rect::from_center_size(
+                egui::pos2(rect.left() + 16.0, rect.center().y),
+                Vec2::splat(16.0),
+            );
+            image
+                .tint(if enabled {
+                    Color32::WHITE
+                } else {
+                    Color32::from_white_alpha(90)
+                })
+                .paint_at(ui, icon_rect);
+            text_x += 22.0;
+        } else if let Some(icon) = context_menu_icon(label) {
+            let icon_rect = egui::Rect::from_center_size(
+                egui::pos2(rect.left() + 16.0, rect.center().y),
+                Vec2::splat(16.0),
+            );
+            button_icon_image(ui, icon, color, 16.0).paint_at(ui, icon_rect);
+            text_x += 22.0;
+        }
+        ui.painter().text(
+            egui::pos2(text_x, rect.center().y),
+            Align2::LEFT_CENTER,
+            label,
+            FontId::proportional(12.0),
+            color,
+        );
+    }
+    response
 }
 
-fn context_menu_primary_button(ui: &mut Ui, label: &str, enabled: bool) -> egui::Response {
-    let text = RichText::new(label).color(text_dark());
-    let button = match context_menu_icon(label) {
-        Some(icon) => {
-            egui::Button::image_and_text(button_icon_image(ui, icon, text_dark(), 16.0), text)
+fn context_menu_primary_button(
+    ui: &mut Ui,
+    label: &str,
+    enabled: bool,
+    width: f32,
+) -> egui::Response {
+    ui.add_enabled_ui(enabled, |ui| {
+        const ICON_SIZE: f32 = 16.0;
+        const ICON_TEXT_GAP: f32 = 4.0;
+        const VERTICAL_PADDING: f32 = 8.0;
+
+        let font_id = FontId::proportional(12.0);
+        let text_galley = ui.painter().layout_no_wrap(
+            label.to_owned(),
+            font_id,
+            if ui.is_enabled() {
+                text_dark()
+            } else {
+                ui.visuals().widgets.noninteractive.fg_stroke.color
+            },
+        );
+        let button_height =
+            VERTICAL_PADDING * 2.0 + ICON_SIZE + ICON_TEXT_GAP + text_galley.size().y;
+        let size = Vec2::new(width, button_height);
+        let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
+        });
+
+        if ui.is_rect_visible(rect) {
+            let system_visuals = foundation_visuals();
+            let interactive = ui.is_enabled();
+            let hovered = interactive && (response.hovered() || response.has_focus());
+            let pressed = interactive && response.is_pointer_button_down_on();
+            let fill = if pressed {
+                system_visuals.widgets.active.weak_bg_fill
+            } else if hovered {
+                context_menu_hover()
+            } else if interactive {
+                system_visuals.widgets.inactive.weak_bg_fill
+            } else {
+                system_visuals.widgets.noninteractive.weak_bg_fill
+            };
+            let stroke = if hovered || pressed {
+                Stroke::new(1.0, foundation_input_edge())
+            } else {
+                Stroke::NONE
+            };
+            ui.painter().rect(rect, 3.0, fill, stroke);
+
+            let color = if interactive {
+                text_dark()
+            } else {
+                ui.visuals().widgets.noninteractive.fg_stroke.color
+            };
+            if let Some(icon) = context_menu_icon(label) {
+                let icon_rect = egui::Rect::from_center_size(
+                    egui::pos2(
+                        rect.center().x,
+                        rect.top() + VERTICAL_PADDING + ICON_SIZE * 0.5,
+                    ),
+                    Vec2::splat(ICON_SIZE),
+                );
+                if interactive {
+                    button_icon_image(ui, icon, color, ICON_SIZE).paint_at(ui, icon_rect);
+                } else {
+                    paint_button_icon_at(ui, icon, icon_rect, color);
+                }
+            }
+            let text_pos = egui::pos2(
+                rect.center().x - text_galley.size().x * 0.5,
+                rect.top() + VERTICAL_PADDING + ICON_SIZE + ICON_TEXT_GAP,
+            );
+            ui.painter().galley(text_pos, text_galley, color);
         }
-        None => egui::Button::new(text),
-    };
-    ui.add_enabled(enabled, button.min_size(Vec2::new(92.0, 44.0)))
+        response
+    })
+    .inner
 }
 
 fn context_menu_icon(label: &str) -> Option<ButtonIcon> {
-    match label {
+    let exact = match label {
         "Rename" => Some(ButtonIcon::Rename),
         "Duplicate" => Some(ButtonIcon::Duplicate),
         "Delete" => Some(ButtonIcon::Garbage),
@@ -143,12 +260,123 @@ fn context_menu_icon(label: &str) -> Option<ButtonIcon> {
         "Open with File Explorer" => Some(ButtonIcon::FileExplorer),
         "Add to Favorites" | "Remove from Favorites" => Some(ButtonIcon::Favourite),
         "Copy Tag Path" => Some(ButtonIcon::CopyPath),
+        "Copy Folder Path" => Some(ButtonIcon::CopyPath),
         "Find Tag References..." => Some(ButtonIcon::Find),
         "Dump Tag to JSON..." => Some(ButtonIcon::Json),
         "Dump Tag References..." => Some(ButtonIcon::Doc),
-        "Open in Sapien" | "Open in tag_test" => Some(ButtonIcon::Open),
+        "Reimport" => Some(ButtonIcon::Import),
         _ => None,
+    };
+    exact.or_else(|| {
+        if label.starts_with("Move to") {
+            Some(ButtonIcon::Move)
+        } else if label.starts_with("Copy to") {
+            Some(ButtonIcon::Copy)
+        } else if label.starts_with("Import ") {
+            Some(ButtonIcon::Import)
+        } else if label.starts_with("Open in new tab") {
+            Some(ButtonIcon::Open)
+        } else if label.starts_with("New tag") {
+            Some(ButtonIcon::Add)
+        } else if label.starts_with("New folder") {
+            Some(ButtonIcon::FolderClosed)
+        } else if label.starts_with("Rename folder") {
+            Some(ButtonIcon::Rename)
+        } else if label.starts_with("Delete folder") {
+            Some(ButtonIcon::Garbage)
+        } else if label.starts_with("Dump folder") {
+            Some(ButtonIcon::Json)
+        } else if label.starts_with("Extract") {
+            Some(ButtonIcon::Export)
+        } else {
+            None
+        }
+    })
+}
+
+/// Right-opening submenu interaction using the same row geometry and SVG
+/// direction marker as the left-opening header-menu counterpart.
+fn context_menu_submenu_button(
+    ui: &mut Ui,
+    label: &str,
+    icon: ButtonIcon,
+    add_contents: impl FnOnce(&mut Ui) -> Option<BrowserAction>,
+) -> Option<BrowserAction> {
+    let response = context_menu_button(ui, label);
+    let icon_rect = egui::Rect::from_center_size(
+        egui::pos2(
+            response.rect.left() + 16.0,
+            response.rect.center().y,
+        ),
+        Vec2::splat(16.0),
+    );
+    paint_button_icon_at(ui, icon, icon_rect, text_dark());
+    paint_submenu_icon(ui, &response, false);
+    let popup_id = response.id.with(("right_submenu", label));
+    let action = right_opening_menu_popup(ui, &response, popup_id, CONTEXT_MENU_WIDTH, |ui| {
+        style_tag_context_menu(ui);
+        add_contents(ui)
+    })
+    .flatten();
+    if action.is_some() {
+        ui.close_menu();
+        ui.data_mut(|data| data.insert_temp(popup_id, false));
     }
+    action
+}
+
+/// Header menus are anchored to the right edge of a pane, where egui's native
+/// right-opening submenu has nowhere to go and is constrained back over its
+/// parent. This counterpart keeps the same row treatment but places the child
+/// popup immediately to the parent's left.
+fn left_opening_context_menu_submenu_button(
+    ui: &mut Ui,
+    label: &str,
+    _icon: ButtonIcon,
+    add_contents: impl FnOnce(&mut Ui) -> Option<BrowserAction>,
+) -> Option<BrowserAction> {
+    let response = context_menu_button(ui, label);
+    paint_submenu_icon(ui, &response, true);
+    let popup_id = response.id.with(("left_submenu", label));
+    let action = left_opening_menu_popup(ui, &response, popup_id, CONTEXT_MENU_WIDTH, |ui| {
+        style_tag_context_menu(ui);
+        add_contents(ui)
+    })
+    .flatten();
+    if action.is_some() {
+        ui.close_menu();
+        ui.data_mut(|data| data.insert_temp(popup_id, false));
+    }
+    action
+}
+
+fn supports_tag_reimport(entry: &TagEntry) -> bool {
+    entry
+        .group_name
+        .as_deref()
+        .and_then(geometry_import_verb_for_group_name)
+        .or_else(|| {
+            blam_tags::paths::group_tag_to_extension(entry.group_tag)
+                .and_then(geometry_import_verb_for_group_name)
+        })
+        .is_some()
+}
+
+/// The scenario launch rows use the same bundled application artwork as the
+/// tag header instead of the generic vector icon used by ordinary Open actions.
+fn context_menu_app_icon(label: &str) -> Option<egui::Image<'static>> {
+    let (uri, bytes): (&'static str, &'static [u8]) = match label {
+        "Open in Sapien" => (
+            "bytes://baboon_app_icons/sapien.png",
+            include_bytes!("../../../assets/App Icons/Sapien.png"),
+        ),
+        "Open in Tag Test" => (
+            "bytes://baboon_app_icons/tag-test.png",
+            include_bytes!("../../../assets/App Icons/Tag Test.png"),
+        ),
+        _ => return None,
+    };
+    Some(egui::Image::from_bytes(uri, bytes).fit_to_exact_size(Vec2::splat(16.0)))
 }
 
 pub(in crate::app) fn context_menu_separator(ui: &mut Ui) {
@@ -157,15 +385,112 @@ pub(in crate::app) fn context_menu_separator(ui: &mut Ui) {
     ui.add_space(3.0);
 }
 
-pub(in crate::app) fn style_tag_context_menu(ui: &mut Ui) {
-    ui.set_min_width(300.0);
+/// Shared geometry and interaction treatment for ordinary list menus. egui's
+/// menu implementation deliberately replaces normal button padding with a
+/// two-point inset, so restore the roomier application row here.
+pub(in crate::app) fn style_list_menu(ui: &mut Ui) {
     ui.spacing_mut().item_spacing = Vec2::new(0.0, 1.0);
     ui.spacing_mut().button_padding = Vec2::new(8.0, 4.0);
     ui.spacing_mut().interact_size.y = 28.0;
     ui.visuals_mut().override_text_color = Some(text_dark());
     ui.visuals_mut().widgets.inactive.bg_fill = Color32::TRANSPARENT;
+    ui.visuals_mut().widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
     ui.visuals_mut().widgets.hovered.bg_fill = context_menu_hover();
+    ui.visuals_mut().widgets.hovered.weak_bg_fill = context_menu_hover();
+    ui.visuals_mut().widgets.hovered.bg_stroke = Stroke::NONE;
     ui.visuals_mut().widgets.active.bg_fill = context_menu_hover();
+    ui.visuals_mut().widgets.active.weak_bg_fill = context_menu_hover();
+    ui.visuals_mut().widgets.active.bg_stroke = Stroke::NONE;
+}
+
+pub(in crate::app) fn style_tag_context_menu(ui: &mut Ui) {
+    // `set_min_width` is not enough here: during egui's menu sizing pass the
+    // full-width rows can see a larger available width and grow the popup to
+    // it. Fix both bounds so 328 points of content plus the default 6-point
+    // inset on each side produces a 340-point frame at 100% display scaling.
+    let menu_margin = ui.spacing().menu_margin;
+    ui.set_width((CONTEXT_MENU_WIDTH - menu_margin.left - menu_margin.right).max(1.0));
+    style_list_menu(ui);
+}
+
+/// Full-width submenu row for the tag's format-specific extraction actions.
+/// Kept out of the primary action strip because it is a menu trigger, not a
+/// direct command.
+fn tag_extract_menu_button(
+    ui: &mut Ui,
+    entry: &TagEntry,
+    open_left: bool,
+) -> Option<BrowserAction> {
+    // The stock submenu row owns the drill-down interaction and arrow, but its
+    // label has no image slot. Make that label transparent and paint the same
+    // 16-point icon + 6-point gap geometry as every other context-menu row.
+    let contents = |ui: &mut Ui| {
+        let mut action = None;
+        ui.set_min_width(280.0);
+        if supports_tag_geometry_extraction(entry.group_tag)
+            && context_menu_button(ui, "Extract model geometry").clicked()
+        {
+            action = Some(BrowserAction::ExtractGeometry(entry.key.clone()));
+            ui.close_menu();
+        }
+        if supports_bsp_geometry_extraction(entry.group_tag)
+            && context_menu_button(ui, "Extract BSP geometry").clicked()
+        {
+            action = Some(BrowserAction::ExtractGeometry(entry.key.clone()));
+            ui.close_menu();
+        }
+        if supports_scenario_geometry_extraction(entry.group_tag)
+            && context_menu_button(ui, "Extract level geometry (one file per BSP)").clicked()
+        {
+            action = Some(BrowserAction::ExtractGeometry(entry.key.clone()));
+            ui.close_menu();
+        }
+        if supports_particle_geometry_extraction(entry.group_tag)
+            && context_menu_button(ui, "Extract particle geometry (JMI + one JMS per object)")
+                .clicked()
+        {
+            action = Some(BrowserAction::ExtractGeometry(entry.key.clone()));
+            ui.close_menu();
+        }
+        if supports_animation_extraction(entry.group_tag)
+            && context_menu_button(ui, "Extract animations").clicked()
+        {
+            action = Some(BrowserAction::ExtractAnimation(entry.key.clone()));
+            ui.close_menu();
+        }
+        if supports_tag_import_info_extraction(entry.group_tag)
+            && context_menu_button(ui, "Extract import-info").clicked()
+        {
+            action = Some(BrowserAction::ExtractImportInfo(entry.key.clone()));
+            ui.close_menu();
+        }
+        if is_bitmap_group(entry.group_tag)
+            && context_menu_button(ui, "Extract bitmap images...").clicked()
+        {
+            action = Some(BrowserAction::ExtractBitmap(entry.key.clone()));
+            ui.close_menu();
+        }
+        if is_material_shader_group(entry.group_tag)
+            && context_menu_button(ui, "Extract source shaders...").clicked()
+        {
+            action = Some(BrowserAction::ExtractMaterialShaderSources(
+                entry.key.clone(),
+            ));
+            ui.close_menu();
+        }
+        if is_hlsl_include_group(entry.group_tag)
+            && context_menu_button(ui, "Extract HLSL include...").clicked()
+        {
+            action = Some(BrowserAction::ExtractHlslIncludeSource(entry.key.clone()));
+            ui.close_menu();
+        }
+        action
+    };
+    if open_left {
+        left_opening_context_menu_submenu_button(ui, "Extract", ButtonIcon::Export, contents)
+    } else {
+        context_menu_submenu_button(ui, "Extract", ButtonIcon::Export, contents)
+    }
 }
 
 fn entry_filename_lower(entry: &TagEntry) -> String {
@@ -587,6 +912,7 @@ pub(in crate::app) fn draw_tree_node_lazy(
         },
     );
     response.context_menu(|ui| {
+        style_tag_context_menu(ui);
         let favorited = browser_favorite_folders(ui).map(|folders| {
             folders
                 .iter()
@@ -606,53 +932,20 @@ pub(in crate::app) fn draw_tree_node_lazy(
             });
             ui.close_menu();
         }
-        ui.separator();
-        if ui.button("Dump folder to JSON...").clicked() {
+        if context_menu_button(ui, "Copy Folder Path").clicked() {
+            clicked = Some(BrowserAction::CopyFolderPath(node.rel_path.clone()));
+            ui.close_menu();
+        }
+        context_menu_separator(ui);
+        if context_menu_button(ui, "Dump folder to JSON...").clicked() {
             clicked = Some(BrowserAction::DumpLooseFolderJson {
                 rel_path: node.rel_path.clone(),
                 label: node.label.clone(),
             });
             ui.close_menu();
         }
-        let bitmap_keys = collect_bitmap_keys(node, entries);
-        if bitmap_keys.is_empty() {
-            ui.label(RichText::new("No loaded bitmap tags in this folder").color(subtle_dark()));
-        } else if ui
-            .button(format!("Extract loaded bitmaps... ({})", bitmap_keys.len()))
-            .clicked()
-        {
-            clicked = Some(BrowserAction::ExtractBitmapFolder(bitmap_keys));
-            ui.close_menu();
-        }
-        let material_shader_keys = collect_material_shader_keys(node, entries);
-        if material_shader_keys.is_empty() {
-            ui.label(
-                RichText::new("No loaded material shaders in this folder").color(subtle_dark()),
-            );
-        } else if ui
-            .button(format!(
-                "Extract loaded material shader sources... ({})",
-                material_shader_keys.len()
-            ))
-            .clicked()
-        {
-            clicked = Some(BrowserAction::ExtractMaterialShaderSourceFolder(
-                material_shader_keys,
-            ));
-            ui.close_menu();
-        }
-        let hlsl_include_keys = collect_hlsl_include_keys(node, entries);
-        if hlsl_include_keys.is_empty() {
-            ui.label(RichText::new("No loaded HLSL includes in this folder").color(subtle_dark()));
-        } else if ui
-            .button(format!(
-                "Extract loaded HLSL includes... ({})",
-                hlsl_include_keys.len()
-            ))
-            .clicked()
-        {
-            clicked = Some(BrowserAction::ExtractHlslIncludeFolder(hlsl_include_keys));
-            ui.close_menu();
+        if let Some(action) = folder_extract_menu_button(ui, node, entries, false, true) {
+            clicked = Some(action);
         }
     });
     if response.double_clicked() {
@@ -793,6 +1086,7 @@ pub(in crate::app) fn draw_tree_node(
         )
     };
     header_response.context_menu(|ui| {
+        style_tag_context_menu(ui);
         if !groups_mode && favorite_keys.is_some() {
             let favorited = browser_favorite_folders(ui).map(|folders| {
                 folders
@@ -808,6 +1102,17 @@ pub(in crate::app) fn draw_tree_node(
             ) {
                 clicked = Some(action);
             }
+            if context_menu_button(ui, "Open with File Explorer").clicked() {
+                clicked = Some(BrowserAction::OpenLooseFolderInExplorer {
+                    rel_path: node.rel_path.clone(),
+                });
+                ui.close_menu();
+            }
+            if context_menu_button(ui, "Copy Folder Path").clicked() {
+                clicked = Some(BrowserAction::CopyFolderPath(node.rel_path.clone()));
+                ui.close_menu();
+            }
+            context_menu_separator(ui);
         }
         // Campaign Evolved folder authoring (Folders mode only — in Groups mode
         // the node path is a group label, not a folder).
@@ -823,11 +1128,11 @@ pub(in crate::app) fn draw_tree_node(
             // means rewriting every tag beneath it — a container write, not a
             // workspace edit, and not what this menu does.
             if let Some(rel) = folder_rel.filter(|_| folder_is_pending_and_empty(node)) {
-                if ui.button("Rename folder...").clicked() {
+                if context_menu_button(ui, "Rename folder...").clicked() {
                     clicked = Some(BrowserAction::RenameContainerFolder { rel: rel.clone() });
                     ui.close_menu();
                 }
-                if ui.button("Delete folder").clicked() {
+                if context_menu_button(ui, "Delete folder").clicked() {
                     clicked = Some(BrowserAction::DeleteContainerFolder { rel });
                     ui.close_menu();
                 }
@@ -835,42 +1140,25 @@ pub(in crate::app) fn draw_tree_node(
             context_menu_separator(ui);
         }
 
+        // Loose folders receive this from the shared primary menu above;
+        // indexed/cache folders have no Favorites context, but their browser
+        // path is still useful on the clipboard.
+        if !groups_mode && favorite_keys.is_none() {
+            if context_menu_button(ui, "Copy Folder Path").clicked() {
+                clicked = Some(BrowserAction::CopyFolderPath(node.rel_path.clone()));
+                ui.close_menu();
+            }
+            context_menu_separator(ui);
+        }
+
         let tag_keys = collect_tag_keys(node, entries);
         if tag_keys.is_empty() {
             ui.label(RichText::new("No tags in this folder").color(subtle_dark()));
-        } else if ui
-            .button(format!("Dump folder to JSON... ({})", tag_keys.len()))
+        } else if context_menu_button(ui, &format!("Dump folder to JSON... ({})", tag_keys.len()))
             .clicked()
         {
             clicked = Some(BrowserAction::DumpLoadedFolderJson(tag_keys));
             ui.close_menu();
-        }
-
-        // Folders mode only. In Groups mode this node is a group label rather
-        // than a folder, and the extraction lays tags out by their own paths —
-        // so a group node would write a tree that has nothing to do with the
-        // node that was clicked.
-        if is_container && !groups_mode {
-            let container_keys = collect_container_tag_keys(node, entries);
-            if container_keys.is_empty() {
-                ui.label(RichText::new("No shipped tags in this folder").color(subtle_dark()));
-            } else if ui
-                .button(format!(
-                    "Extract tags to folder... ({})",
-                    container_keys.len()
-                ))
-                .on_hover_text(
-                    "Write every tag this folder ships to a folder on disk, laid out like an \
-                     editing kit",
-                )
-                .clicked()
-            {
-                clicked = Some(BrowserAction::ExtractContainerFolderTags {
-                    label: folder_display_path(node),
-                    keys: container_keys,
-                });
-                ui.close_menu();
-            }
         }
 
         // Monolithic caches only. The tags in one are big-endian and read-only,
@@ -880,8 +1168,7 @@ pub(in crate::app) fn draw_tree_node(
         if !groups_mode {
             let cache_tags = count_cache_tags(node, entries);
             if cache_tags > 0
-                && ui
-                    .button(format!("Import into editing kit... ({cache_tags})"))
+                && context_menu_button(ui, &format!("Import into editing kit... ({cache_tags})"))
                     .on_hover_text(
                         "Convert this folder to little-endian tags in an open editing kit, \
                          at the same paths, pulling in whatever they reference",
@@ -895,45 +1182,13 @@ pub(in crate::app) fn draw_tree_node(
             }
         }
 
-        let bitmap_keys = collect_bitmap_keys(node, entries);
-        if bitmap_keys.is_empty() {
-            ui.label(RichText::new("No bitmap tags in this folder").color(subtle_dark()));
-        } else if ui
-            .button(format!("Extract all bitmaps... ({})", bitmap_keys.len()))
-            .clicked()
+        // A group node is not a real folder, so only Folders mode may offer a
+        // raw container-folder extraction. Type-specific bulk exports remain
+        // valid in either view, matching their previous availability.
+        if let Some(action) =
+            folder_extract_menu_button(ui, node, entries, is_container && !groups_mode, false)
         {
-            clicked = Some(BrowserAction::ExtractBitmapFolder(bitmap_keys));
-            ui.close_menu();
-        }
-
-        let material_shader_keys = collect_material_shader_keys(node, entries);
-        if material_shader_keys.is_empty() {
-            ui.label(RichText::new("No material shaders in this folder").color(subtle_dark()));
-        } else if ui
-            .button(format!(
-                "Extract material shader sources... ({})",
-                material_shader_keys.len()
-            ))
-            .clicked()
-        {
-            clicked = Some(BrowserAction::ExtractMaterialShaderSourceFolder(
-                material_shader_keys,
-            ));
-            ui.close_menu();
-        }
-
-        let hlsl_include_keys = collect_hlsl_include_keys(node, entries);
-        if hlsl_include_keys.is_empty() {
-            ui.label(RichText::new("No HLSL includes in this folder").color(subtle_dark()));
-        } else if ui
-            .button(format!(
-                "Extract HLSL includes... ({})",
-                hlsl_include_keys.len()
-            ))
-            .clicked()
-        {
-            clicked = Some(BrowserAction::ExtractHlslIncludeFolder(hlsl_include_keys));
-            ui.close_menu();
+            clicked = Some(action);
         }
     });
     if !groups_mode && header_response.double_clicked() {
@@ -952,6 +1207,201 @@ fn paths_match_case_insensitive(a: &Path, b: &Path) -> bool {
         .eq_ignore_ascii_case(&b.to_string_lossy().replace('\\', "/"))
 }
 
+/// Collect the folder-wide export commands beneath one row. Keeping this
+/// shared between the lazy loose-folder tree and fully indexed sources makes
+/// their menus differ only in whether they say "loaded" and whether raw
+/// container tags can be extracted.
+fn folder_extract_menu_button(
+    ui: &mut Ui,
+    node: &TagTreeNode,
+    entries: &[TagEntry],
+    include_container_tags: bool,
+    loaded_labels: bool,
+) -> Option<BrowserAction> {
+    let container_keys = include_container_tags
+        .then(|| collect_container_tag_keys(node, entries))
+        .unwrap_or_default();
+    let bitmap_keys = collect_bitmap_keys(node, entries);
+    let material_shader_keys = collect_material_shader_keys(node, entries);
+    let hlsl_include_keys = collect_hlsl_include_keys(node, entries);
+    folder_extract_menu_from_keys(
+        ui,
+        folder_display_path(node),
+        container_keys,
+        bitmap_keys,
+        material_shader_keys,
+        hlsl_include_keys,
+        loaded_labels,
+        include_container_tags,
+        false,
+    )
+}
+
+/// Root-tree counterpart used by a folder tab header. A [`TagTree`] has the
+/// same entry/child shape as a folder node but deliberately carries no label,
+/// so the pane supplies the path used by raw-container extraction.
+pub(in crate::app) fn folder_tree_extract_menu_button(
+    ui: &mut Ui,
+    tree: &TagTree,
+    entries: &[TagEntry],
+    label: String,
+    include_container_tags: bool,
+    loaded_labels: bool,
+    open_left: bool,
+) -> Option<BrowserAction> {
+    let mut container_keys = Vec::new();
+    let mut bitmap_keys = Vec::new();
+    let mut material_shader_keys = Vec::new();
+    let mut hlsl_include_keys = Vec::new();
+
+    for &entry_index in &tree.entries {
+        let Some(entry) = entries.get(entry_index) else {
+            continue;
+        };
+        if include_container_tags && matches!(entry.location, TagEntryLocation::Container { .. }) {
+            container_keys.push(entry.key.clone());
+        }
+        if is_bitmap_tag(entry) {
+            bitmap_keys.push(entry.key.clone());
+        }
+        if is_material_shader_browser_tag(entry) {
+            material_shader_keys.push(entry.key.clone());
+        }
+        if is_hlsl_include_tag(entry) {
+            hlsl_include_keys.push(entry.key.clone());
+        }
+    }
+    for child in &tree.children {
+        if include_container_tags {
+            collect_container_tag_keys_into(child, entries, &mut container_keys);
+        }
+        collect_bitmap_keys_into(child, entries, &mut bitmap_keys);
+        collect_material_shader_keys_into(child, entries, &mut material_shader_keys);
+        collect_hlsl_include_keys_into(child, entries, &mut hlsl_include_keys);
+    }
+
+    folder_extract_menu_from_keys(
+        ui,
+        label,
+        container_keys,
+        bitmap_keys,
+        material_shader_keys,
+        hlsl_include_keys,
+        loaded_labels,
+        include_container_tags,
+        open_left,
+    )
+}
+
+fn folder_extract_menu_from_keys(
+    ui: &mut Ui,
+    label: String,
+    container_keys: Vec<String>,
+    bitmap_keys: Vec<String>,
+    material_shader_keys: Vec<String>,
+    hlsl_include_keys: Vec<String>,
+    loaded_labels: bool,
+    include_container_tags: bool,
+    open_left: bool,
+) -> Option<BrowserAction> {
+    let has_extractable = !container_keys.is_empty()
+        || !bitmap_keys.is_empty()
+        || !material_shader_keys.is_empty()
+        || !hlsl_include_keys.is_empty();
+
+    let menu = ui.add_enabled_ui(true, |ui| {
+        let contents = |ui: &mut Ui| {
+            style_tag_context_menu(ui);
+            let mut action = None;
+            if include_container_tags {
+                let count = container_keys.len();
+                let response = ui
+                    .add_enabled_ui(count > 0, |ui| {
+                        context_menu_button(ui, &format!("Extract tags to folder... ({count})"))
+                    })
+                    .inner
+                    .on_hover_text(
+                        "Write every tag this folder ships to a folder on disk, laid out like an \
+                     editing kit",
+                    );
+                if response.clicked() {
+                    action = Some(BrowserAction::ExtractContainerFolderTags {
+                        label: label.clone(),
+                        keys: container_keys,
+                    });
+                    ui.close_menu();
+                }
+            }
+
+            let bitmap_count = bitmap_keys.len();
+            let bitmap_qualifier = if loaded_labels { "loaded " } else { "all " };
+            let bitmap_response = ui
+                .add_enabled_ui(bitmap_count > 0, |ui| {
+                    context_menu_button(
+                        ui,
+                        &format!("Extract {bitmap_qualifier}bitmaps... ({bitmap_count})"),
+                    )
+                })
+                .inner;
+            if bitmap_response.clicked() {
+                action = Some(BrowserAction::ExtractBitmapFolder(bitmap_keys));
+                ui.close_menu();
+            }
+
+            let shader_count = material_shader_keys.len();
+            let shader_qualifier = if loaded_labels { "loaded " } else { "" };
+            let shader_response = ui
+                .add_enabled_ui(shader_count > 0, |ui| {
+                    context_menu_button(
+                        ui,
+                        &format!(
+                            "Extract {shader_qualifier}material shader sources... ({shader_count})"
+                        ),
+                    )
+                })
+                .inner;
+            if shader_response.clicked() {
+                action = Some(BrowserAction::ExtractMaterialShaderSourceFolder(
+                    material_shader_keys,
+                ));
+                ui.close_menu();
+            }
+
+            let hlsl_count = hlsl_include_keys.len();
+            let hlsl_qualifier = if loaded_labels { "loaded " } else { "" };
+            let hlsl_response = ui
+                .add_enabled_ui(hlsl_count > 0, |ui| {
+                    context_menu_button(
+                        ui,
+                        &format!("Extract {hlsl_qualifier}HLSL includes... ({hlsl_count})"),
+                    )
+                })
+                .inner;
+            if hlsl_response.clicked() {
+                action = Some(BrowserAction::ExtractHlslIncludeFolder(hlsl_include_keys));
+                ui.close_menu();
+            }
+
+            if !has_extractable {
+                ui.add_space(3.0);
+                let hint = if loaded_labels {
+                    "No loaded extractable tags — expand the folder to load its contents"
+                } else {
+                    "No extractable tags in this folder"
+                };
+                ui.label(RichText::new(hint).color(subtle_dark()));
+            }
+            action
+        };
+        if open_left {
+            left_opening_context_menu_submenu_button(ui, "Extract", ButtonIcon::Export, contents)
+        } else {
+            context_menu_submenu_button(ui, "Extract", ButtonIcon::Export, contents)
+        }
+    });
+    menu.inner
+}
+
 /// The leading actions shared by loose folders wherever they appear. Keeping
 /// this sequence in one place prevents Favorites, the sidebar, and folder tabs
 /// from silently losing different commands as the menu evolves.
@@ -964,13 +1414,15 @@ fn loose_folder_primary_menu_items(
 ) -> Option<BrowserAction> {
     let mut action = None;
     if let Some(favorited) = favorited {
-        if ui
-            .button(if favorited {
+        if context_menu_button(
+            ui,
+            if favorited {
                 "Remove from Favorites"
             } else {
                 "Add to Favorites"
-            })
-            .clicked()
+            },
+        )
+        .clicked()
         {
             action = Some(BrowserAction::ToggleFolderFavorite(rel_path.to_path_buf()));
             ui.close_menu();
@@ -980,9 +1432,8 @@ fn loose_folder_primary_menu_items(
     if let Some(transfer) = loose_folder_transfer_menu_items(ui, rel_path, label) {
         action = Some(transfer);
     }
-    context_menu_separator(ui);
     if open_in_new_tab {
-        if ui.button("Open in new tab").clicked() {
+        if context_menu_button(ui, "Open in new tab").clicked() {
             action = Some(BrowserAction::OpenFolderBrowser {
                 rel_path: rel_path.to_path_buf(),
                 label: label.to_owned(),
@@ -990,8 +1441,10 @@ fn loose_folder_primary_menu_items(
             });
             ui.close_menu();
         }
-        context_menu_separator(ui);
     }
+    // Explorer and clipboard-path commands form the next section at every
+    // right-click entry point that consumes this shared primary block.
+    context_menu_separator(ui);
     action
 }
 
@@ -1002,14 +1455,14 @@ pub(in crate::app) fn loose_folder_transfer_menu_items(
     rel_path: &Path,
     label: &str,
 ) -> Option<BrowserAction> {
-    if ui.button("Move to...").clicked() {
+    if context_menu_button(ui, "Move to...").clicked() {
         ui.close_menu();
         return Some(BrowserAction::MoveLooseFolder {
             rel_path: rel_path.to_path_buf(),
             label: label.to_owned(),
         });
     }
-    if ui.button("Copy to...").clicked() {
+    if context_menu_button(ui, "Copy to...").clicked() {
         ui.close_menu();
         return Some(BrowserAction::CopyLooseFolder {
             rel_path: rel_path.to_path_buf(),
@@ -1018,8 +1471,7 @@ pub(in crate::app) fn loose_folder_transfer_menu_items(
     }
     // Import is intentionally not Expert-gated: converting content from
     // another game is a primary folder operation and confirms before writing.
-    if ui
-        .button("Import tags here...")
+    if context_menu_button(ui, "Import tags here...")
         .on_hover_text(
             "Convert a tag, or a whole folder of them, from another game into this folder",
         )
@@ -1057,19 +1509,19 @@ fn container_authoring_menu_items(
     folder_rel: Option<String>,
 ) -> Option<BrowserAction> {
     let mut clicked = None;
-    if ui.button("New tag here...").clicked() {
+    if context_menu_button(ui, "New tag here...").clicked() {
         clicked = Some(BrowserAction::NewTagInFolder {
             folder_rel: folder_rel.clone(),
         });
         ui.close_menu();
     }
-    if ui.button("Import tag here...").clicked() {
+    if context_menu_button(ui, "Import tag here...").clicked() {
         clicked = Some(BrowserAction::ImportTagInFolder {
             folder_rel: folder_rel.clone(),
         });
         ui.close_menu();
     }
-    if ui.button("New folder here...").clicked() {
+    if context_menu_button(ui, "New folder here...").clicked() {
         clicked = Some(BrowserAction::NewContainerFolder {
             parent_rel: folder_rel,
         });
@@ -1096,6 +1548,7 @@ fn draw_container_root_target(ui: &mut Ui) -> Option<BrowserAction> {
     let (_, response) = ui.allocate_exact_size(size, Sense::click());
     let mut clicked = None;
     response.context_menu(|ui| {
+        style_tag_context_menu(ui);
         // Right-clicking blank space is ambiguous about what it acts on, so the
         // menu says.
         ui.label(RichText::new("Container root").color(subtle_dark()).small());
@@ -1769,7 +2222,7 @@ pub(in crate::app) fn draw_entry(
     };
     let mut action = open_requested.then(|| BrowserAction::Select(entry.key.clone()));
     response.context_menu(|ui| {
-        if let Some(menu_action) = draw_tag_context_menu_contents(ui, entry, favorite_keys) {
+        if let Some(menu_action) = draw_tag_context_menu_contents(ui, entry, favorite_keys, false) {
             action = Some(menu_action);
         }
     });
@@ -1780,6 +2233,7 @@ pub(in crate::app) fn draw_tag_context_menu_contents(
     ui: &mut Ui,
     entry: &TagEntry,
     favorite_keys: Option<&HashSet<String>>,
+    open_submenus_left: bool,
 ) -> Option<BrowserAction> {
     let mut action = None;
     style_tag_context_menu(ui);
@@ -1804,16 +2258,26 @@ pub(in crate::app) fn draw_tag_context_menu_contents(
     let deletable = browser_deletable_keys(ui);
     let delete_enabled = supports_delete_menu(entry, deletable.as_deref());
     let extract_enabled = supports_tag_extract_menu(entry.group_tag);
+    const PRIMARY_BUTTON_GAP: f32 = 4.0;
+    let primary_button_width = (ui.available_width() - PRIMARY_BUTTON_GAP * 3.0) / 4.0;
     ui.horizontal(|ui| {
-        if context_menu_primary_button(ui, "Rename", rename_enabled).clicked() {
+        ui.spacing_mut().item_spacing.x = PRIMARY_BUTTON_GAP;
+        if context_menu_primary_button(ui, "Rename", rename_enabled, primary_button_width).clicked()
+        {
             action = Some(BrowserAction::RenameTag(entry.key.clone()));
             ui.close_menu();
         }
-        if context_menu_primary_button(ui, "Duplicate", duplicate_enabled).clicked() {
+        if context_menu_primary_button(ui, "Move", rename_enabled, primary_button_width).clicked() {
+            action = Some(BrowserAction::MoveTag(entry.key.clone()));
+            ui.close_menu();
+        }
+        if context_menu_primary_button(ui, "Duplicate", duplicate_enabled, primary_button_width)
+            .clicked()
+        {
             action = Some(BrowserAction::DuplicateTag(entry.key.clone()));
             ui.close_menu();
         }
-        if context_menu_primary_button(ui, "Delete", delete_enabled)
+        if context_menu_primary_button(ui, "Delete", delete_enabled, primary_button_width)
             .on_disabled_hover_text(
                 "Only loose tags and Campaign Evolved tags duplicated by Baboon can be deleted",
             )
@@ -1822,92 +2286,11 @@ pub(in crate::app) fn draw_tag_context_menu_contents(
             action = Some(BrowserAction::DeleteTag(entry.key.clone()));
             ui.close_menu();
         }
-        if context_menu_primary_button(ui, "Move", rename_enabled).clicked() {
-            action = Some(BrowserAction::MoveTag(entry.key.clone()));
-            ui.close_menu();
-        }
-        ui.add_enabled_ui(extract_enabled, |ui| {
-            ui.allocate_ui(Vec2::new(92.0, 44.0), |ui| {
-                ui.set_min_width(92.0);
-                let extract_menu = ui.menu_button("     Extract", |ui| {
-                    ui.set_min_width(280.0);
-                    if supports_tag_geometry_extraction(entry.group_tag)
-                        && context_menu_button(ui, "Extract model geometry").clicked()
-                    {
-                        action = Some(BrowserAction::ExtractGeometry(entry.key.clone()));
-                        ui.close_menu();
-                    }
-                    if supports_bsp_geometry_extraction(entry.group_tag)
-                        && context_menu_button(ui, "Extract BSP geometry").clicked()
-                    {
-                        action = Some(BrowserAction::ExtractGeometry(entry.key.clone()));
-                        ui.close_menu();
-                    }
-                    if supports_scenario_geometry_extraction(entry.group_tag)
-                        && context_menu_button(ui, "Extract level geometry (one file per BSP)")
-                            .clicked()
-                    {
-                        action = Some(BrowserAction::ExtractGeometry(entry.key.clone()));
-                        ui.close_menu();
-                    }
-                    if supports_particle_geometry_extraction(entry.group_tag)
-                        && context_menu_button(
-                            ui,
-                            "Extract particle geometry (JMI + one JMS per object)",
-                        )
-                        .clicked()
-                    {
-                        action = Some(BrowserAction::ExtractGeometry(entry.key.clone()));
-                        ui.close_menu();
-                    }
-                    if supports_animation_extraction(entry.group_tag)
-                        && context_menu_button(ui, "Extract animations").clicked()
-                    {
-                        action = Some(BrowserAction::ExtractAnimation(entry.key.clone()));
-                        ui.close_menu();
-                    }
-                    if supports_tag_import_info_extraction(entry.group_tag)
-                        && context_menu_button(ui, "Extract import-info").clicked()
-                    {
-                        action = Some(BrowserAction::ExtractImportInfo(entry.key.clone()));
-                        ui.close_menu();
-                    }
-                    if is_bitmap_group(entry.group_tag)
-                        && context_menu_button(ui, "Extract bitmap images...").clicked()
-                    {
-                        action = Some(BrowserAction::ExtractBitmap(entry.key.clone()));
-                        ui.close_menu();
-                    }
-                    if is_material_shader_group(entry.group_tag)
-                        && context_menu_button(ui, "Extract source shaders...").clicked()
-                    {
-                        action = Some(BrowserAction::ExtractMaterialShaderSources(
-                            entry.key.clone(),
-                        ));
-                        ui.close_menu();
-                    }
-                    if is_hlsl_include_group(entry.group_tag)
-                        && context_menu_button(ui, "Extract HLSL include...").clicked()
-                    {
-                        action = Some(BrowserAction::ExtractHlslIncludeSource(entry.key.clone()));
-                        ui.close_menu();
-                    }
-                });
-                let icon_rect = egui::Rect::from_center_size(
-                    egui::pos2(
-                        extract_menu.response.rect.left() + 17.0,
-                        extract_menu.response.rect.center().y,
-                    ),
-                    Vec2::splat(16.0),
-                );
-                paint_button_icon_at(ui, ButtonIcon::Export, icon_rect, text_dark());
-            });
-        });
     });
 
     // Whole-tag operations, inline: the raw payload, and the scenario's
-    // script source. Per-asset extraction lives in the Extract submenu
-    // above instead.
+    // script source. Per-asset extraction lives in the Extract submenu lower
+    // in the full-width command list.
     // Campaign Evolved only for the script pair: the scenario keeps its
     // original `.hsc` source, and replacing it is only meaningful where that
     // round-trip is known to hold.
@@ -1931,14 +2314,28 @@ pub(in crate::app) fn draw_tag_context_menu_contents(
         }
     }
 
+    context_menu_separator(ui);
+    if let Some(favorite_keys) = favorite_keys {
+        let label = if favorite_keys.contains(&entry.key) {
+            "Remove from Favorites"
+        } else {
+            "Add to Favorites"
+        };
+        if context_menu_button(ui, label).clicked() {
+            action = Some(BrowserAction::ToggleFavorite(entry.key.clone()));
+            ui.close_menu();
+        }
+    }
+
     // The same two launches the tag pane's header offers, so a scenario can
-    // be opened in the kit's tools without opening the tag first. Shown only
-    // where the kit can launch at all; Sapien is *hidden* rather than
-    // disabled where it takes no scenario argument, matching the toolbar —
-    // a control that can never work is not offered greyed out.
+    // be opened in the kit's tools without opening the tag first. Keep them
+    // together directly below Favorites. Sapien is hidden where the kit can
+    // never accept a scenario; missing executables remain visible but disabled.
     let launch = browser_scenario_launch(ui);
     if launch.supported && is_scenario_group(entry.group_tag) {
-        context_menu_separator(ui);
+        if favorite_keys.is_some() {
+            context_menu_separator(ui);
+        }
         if launch.offers_sapien {
             let response = ui
                 .add_enabled_ui(launch.sapien_present, |ui| {
@@ -1955,7 +2352,7 @@ pub(in crate::app) fn draw_tag_context_menu_contents(
         }
         let response = ui
             .add_enabled_ui(launch.tag_test_present, |ui| {
-                context_menu_button(ui, "Open in tag_test")
+                context_menu_button(ui, "Open in Tag Test")
             })
             .inner;
         if response.clicked() {
@@ -1967,21 +2364,35 @@ pub(in crate::app) fn draw_tag_context_menu_contents(
         }
     }
 
+    if favorite_keys.is_some() || launch.supported && is_scenario_group(entry.group_tag) {
+        context_menu_separator(ui);
+    }
+    if supports_tag_reimport(entry) {
+        let enabled = matches!(entry.location, TagEntryLocation::LooseFile(_));
+        let response = ui
+            .add_enabled_ui(enabled, |ui| context_menu_button(ui, "Reimport"))
+            .inner;
+        if response.clicked() {
+            action = Some(BrowserAction::ReimportGeometry(entry.key.clone()));
+            ui.close_menu();
+        }
+        if !enabled {
+            response.on_disabled_hover_text("Reimport requires a loose editing-kit tag");
+        }
+    }
+    let extract_action = ui
+        .add_enabled_ui(extract_enabled, |ui| {
+            tag_extract_menu_button(ui, entry, open_submenus_left)
+        })
+        .inner;
+    if extract_action.is_some() {
+        action = extract_action;
+    }
+
     context_menu_separator(ui);
     if context_menu_button(ui, "Open with File Explorer").clicked() {
         action = Some(BrowserAction::OpenInExplorer(entry.key.clone()));
         ui.close_menu();
-    }
-    if let Some(favorite_keys) = favorite_keys {
-        let label = if favorite_keys.contains(&entry.key) {
-            "Remove from Favorites"
-        } else {
-            "Add to Favorites"
-        };
-        if context_menu_button(ui, label).clicked() {
-            action = Some(BrowserAction::ToggleFavorite(entry.key.clone()));
-            ui.close_menu();
-        }
     }
     if context_menu_button(ui, "Copy Tag Path").clicked() {
         action = Some(BrowserAction::CopyTagName(entry.key.clone()));
@@ -2011,6 +2422,8 @@ pub(in crate::app) fn draw_tag_context_menu_contents(
 pub(in crate::app) fn draw_favorites(
     ui: &mut Ui,
     entries: &[TagEntry],
+    folder_entries: &[TagEntry],
+    tags_root: Option<&Path>,
     selected: Option<&str>,
     filter: &str,
     show_prefixes: bool,
@@ -2063,6 +2476,7 @@ pub(in crate::app) fn draw_favorites(
                 });
             }
             response.context_menu(|ui| {
+                style_tag_context_menu(ui);
                 if let Some(folder_action) = loose_folder_primary_menu_items(
                     ui,
                     folder,
@@ -2074,12 +2488,41 @@ pub(in crate::app) fn draw_favorites(
                 }
                 if context_menu_button(ui, "Open with File Explorer").clicked() {
                     action = Some(BrowserAction::OpenLooseFolderInExplorer {
-                        rel_path: folder.clone(),
+                        // Bind a favorite to the root it was rendered from.
+                        // This avoids resolving it against a different active
+                        // workspace if focus changes during the menu click.
+                        rel_path: tags_root
+                            .map(|root| root.join(folder))
+                            .unwrap_or_else(|| folder.clone()),
                     });
                     ui.close_menu();
                 }
-                ui.separator();
-                if ui.button("Dump folder to JSON...").clicked() {
+                if context_menu_button(ui, "Copy Folder Path").clicked() {
+                    action = Some(BrowserAction::CopyFolderPath(folder.clone()));
+                    ui.close_menu();
+                }
+                context_menu_separator(ui);
+                // Favorite folders do not own a tree node in this section.
+                // Rebuild only their loaded subtree while the menu is open so
+                // the shared extraction menu can collect the same keys as a
+                // manually navigated folder without doing I/O on right-click.
+                let subtree = crate::source::build_tree_beneath(folder_entries, folder);
+                let folder_node = TagTreeNode {
+                    label: label.clone(),
+                    rel_path: folder.clone(),
+                    children: subtree.children,
+                    children_loaded: true,
+                    entries: subtree.entries,
+                    entries_loaded: true,
+                    pending: false,
+                };
+                if let Some(folder_action) =
+                    folder_extract_menu_button(ui, &folder_node, folder_entries, false, true)
+                {
+                    action = Some(folder_action);
+                }
+                context_menu_separator(ui);
+                if context_menu_button(ui, "Dump folder to JSON...").clicked() {
                     action = Some(BrowserAction::DumpLooseFolderJson {
                         rel_path: folder.clone(),
                         label: label.clone(),
@@ -2605,6 +3048,62 @@ mod tests {
     #[test]
     fn duplicate_context_button_uses_duplicate_asset_icon() {
         assert_eq!(context_menu_icon("Duplicate"), Some(ButtonIcon::Duplicate));
+    }
+
+    #[test]
+    fn reimport_context_button_uses_import_icon() {
+        assert_eq!(context_menu_icon("Reimport"), Some(ButtonIcon::Import));
+    }
+
+    #[test]
+    fn folder_context_commands_have_matching_icons() {
+        assert_eq!(context_menu_icon("Move to..."), Some(ButtonIcon::Move));
+        assert_eq!(context_menu_icon("Copy to..."), Some(ButtonIcon::Copy));
+        assert_eq!(
+            context_menu_icon("Copy Folder Path"),
+            Some(ButtonIcon::CopyPath)
+        );
+        assert_eq!(
+            context_menu_icon("Import tags here..."),
+            Some(ButtonIcon::Import)
+        );
+        assert_eq!(
+            context_menu_icon("New folder here..."),
+            Some(ButtonIcon::FolderClosed)
+        );
+        assert_eq!(
+            context_menu_icon("Dump folder to JSON... (12)"),
+            Some(ButtonIcon::Json)
+        );
+        assert_eq!(
+            context_menu_icon("Extract loaded HLSL includes... (3)"),
+            Some(ButtonIcon::Export)
+        );
+    }
+
+    #[test]
+    fn reimport_menu_matches_the_reference_field_tag_types() {
+        let loose = TagEntryLocation::LooseFile(PathBuf::from(
+            "objects/characters/example/example.render_model",
+        ));
+        for group_name in [
+            "render_model",
+            "collision_model",
+            "physics_model",
+            "model_animation_graph",
+        ] {
+            let candidate = TagEntry {
+                group_name: Some(group_name.to_owned()),
+                ..entry(loose.clone())
+            };
+            assert!(supports_tag_reimport(&candidate), "{group_name}");
+        }
+
+        let bitmap = TagEntry {
+            group_name: Some("bitmap".to_owned()),
+            ..entry(loose)
+        };
+        assert!(!supports_tag_reimport(&bitmap));
     }
 
     /// The count that decides whether a folder offers the cache import at all.

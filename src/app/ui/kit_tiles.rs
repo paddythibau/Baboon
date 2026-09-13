@@ -152,8 +152,12 @@ impl egui_tiles::Behavior<KitId> for KitPaneBehavior<'_> {
     ) {
         wheel_scroll_tab_bar(ui, scroll_offset);
         let recents = self.app.recent_folders.clone();
-        ui.menu_button("+", |ui| {
-            ui.set_min_width(240.0);
+        let menu_margin = Frame::menu(ui.style()).total_margin();
+        let root_popup_width = 320.0 + menu_margin.left + menu_margin.right;
+        let recent_popup_width = 240.0 + menu_margin.left + menu_margin.right;
+        right_aligned_menu_button(ui, "+", root_popup_width, |ui| {
+            style_list_menu(ui);
+            ui.set_width(320.0);
             if ui.button("Load Folder...").clicked() {
                 ui.close_menu();
                 self.add_kit = Some(LoadKind::Folder);
@@ -174,9 +178,16 @@ impl egui_tiles::Behavior<KitId> for KitPaneBehavior<'_> {
                 self.add_kit = Some(LoadKind::Container);
             }
             ui.separator();
-            ui.menu_button("Recent", |ui| {
-                self.recent_action = draw_recent_folders_menu(ui, &recents);
-            });
+            if let Some(recent_action) =
+                left_opening_menu_button(ui, "Recent", recent_popup_width, |ui| {
+                    style_list_menu(ui);
+                    draw_recent_folders_menu(ui, &recents)
+                })
+            .flatten()
+            {
+                self.recent_action = Some(recent_action);
+                ui.close_menu();
+            }
         })
         .response
         .on_hover_text("Open another game in its own workspace");

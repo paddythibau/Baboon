@@ -38,6 +38,8 @@ pub(super) enum ButtonIcon {
     JumpTo,
     JumpUp,
     Left,
+    ListDropdownLeft,
+    ListDropdownRight,
     Move,
     Opened,
     Other,
@@ -91,6 +93,12 @@ pub(super) fn button_icon_svg(icon: ButtonIcon) -> &'static str {
         ButtonIcon::JumpTo => include_str!("../../assets/Button Icons/Jump To.svg"),
         ButtonIcon::JumpUp => include_str!("../../assets/Button Icons/Jump Up.svg"),
         ButtonIcon::Left => include_str!("../../assets/Button Icons/Left.svg"),
+        ButtonIcon::ListDropdownLeft => {
+            include_str!("../../assets/Button Icons/List Dropdown - Left.svg")
+        }
+        ButtonIcon::ListDropdownRight => {
+            include_str!("../../assets/Button Icons/List Dropdown - Right.svg")
+        }
         ButtonIcon::Move => include_str!("../../assets/Button Icons/Move.svg"),
         ButtonIcon::Opened => include_str!("../../assets/Button Icons/Opened.svg"),
         ButtonIcon::Other => include_str!("../../assets/Button Icons/Other.svg"),
@@ -214,12 +222,89 @@ pub(super) fn selectable_icon_text_button(
     label: impl Into<egui::WidgetText>,
     selected: bool,
 ) -> egui::Response {
-    let image = button_icon_image(ui, icon, text_dark(), BUTTON_ICON_SIZE);
-    ui.add(
-        egui::Button::image_and_text(image, label)
-            .selected(selected)
-            .min_size(Vec2::new(0.0, BUTTON_HEIGHT)),
-    )
+    ui.scope(|ui| {
+        if selected {
+            let selection = ui.visuals().selection;
+            let hover_color = if is_dark_mode() {
+                Color32::WHITE
+            } else {
+                Color32::BLACK
+            };
+            let widgets = &mut ui.visuals_mut().widgets;
+
+            // egui's built-in `Button::selected` paints with square corners.
+            // Apply the selected palette through the normal button states so
+            // toggles retain their usual rounding and hover expansion.
+            widgets.inactive.weak_bg_fill = selection.bg_fill;
+            widgets.inactive.bg_stroke = selection.stroke;
+            widgets.hovered.weak_bg_fill = selection.bg_fill;
+            widgets.hovered.bg_stroke = Stroke::new(selection.stroke.width, hover_color);
+            widgets.hovered.expansion = widgets.hovered.expansion.max(1.0);
+            widgets.active.weak_bg_fill = selection.bg_fill;
+            widgets.active.bg_stroke = Stroke::new(selection.stroke.width, hover_color);
+            widgets.active.expansion = widgets.active.expansion.max(1.0);
+        }
+
+        let image = button_icon_image(ui, icon, text_dark(), BUTTON_ICON_SIZE);
+        ui.add(
+            egui::Button::image_and_text(image, label)
+                .min_size(Vec2::new(0.0, BUTTON_HEIGHT)),
+        )
+    })
+    .inner
+}
+
+/// egui offsets a popup frame to align its first row with the trigger. Shift
+/// only the positioning response by that inset so the frame edge aligns with
+/// the real button while retaining the frame's visible content padding.
+fn aligned_menu_custom_button<R>(
+    ui: &mut Ui,
+    button: egui::Button<'_>,
+    right_aligned_width: Option<f32>,
+    add_contents: impl FnOnce(&mut Ui) -> R,
+) -> egui::InnerResponse<Option<R>> {
+    let bar_id = ui.id();
+    let mut bar_state = egui::menu::BarState::load(ui.ctx(), bar_id);
+    let button_response = ui.add(button);
+    let mut positioning_response = button_response.clone();
+    let frame_left = Frame::menu(&ui.ctx().style()).total_margin().left;
+    positioning_response.rect.min.x = right_aligned_width
+        .map_or(positioning_response.rect.min.x + frame_left, |width| {
+            button_response.rect.right() - width + frame_left
+        });
+    let inner = bar_state.bar_menu(&positioning_response, add_contents);
+    bar_state.store(ui.ctx(), bar_id);
+    egui::InnerResponse::new(inner.map(|response| response.inner), button_response)
+}
+
+pub(super) fn aligned_menu_button<R>(
+    ui: &mut Ui,
+    title: impl Into<egui::WidgetText>,
+    add_contents: impl FnOnce(&mut Ui) -> R,
+) -> egui::InnerResponse<Option<R>> {
+    let previous_padding = ui.spacing().button_padding.x;
+    ui.spacing_mut().button_padding.x = 8.0;
+    let menu = aligned_menu_custom_button(ui, egui::Button::new(title), None, add_contents);
+    ui.spacing_mut().button_padding.x = previous_padding;
+    menu
+}
+
+pub(super) fn right_aligned_menu_button<R>(
+    ui: &mut Ui,
+    title: impl Into<egui::WidgetText>,
+    popup_width: f32,
+    add_contents: impl FnOnce(&mut Ui) -> R,
+) -> egui::InnerResponse<Option<R>> {
+    let previous_padding = ui.spacing().button_padding.x;
+    ui.spacing_mut().button_padding.x = 8.0;
+    let menu = aligned_menu_custom_button(
+        ui,
+        egui::Button::new(title),
+        Some(popup_width),
+        add_contents,
+    );
+    ui.spacing_mut().button_padding.x = previous_padding;
+    menu
 }
 
 /// A menu trigger with the same fixed square geometry as the app's other
@@ -231,15 +316,207 @@ pub(super) fn icon_menu_button<R>(
     tooltip: &str,
     add_contents: impl FnOnce(&mut Ui) -> R,
 ) -> egui::Response {
-    let menu = egui::menu::menu_custom_button(
+    let menu = aligned_menu_custom_button(
         ui,
         egui::Button::new("").min_size(ICON_BUTTON_SIZE),
+        None,
         add_contents,
     );
     let icon_rect =
         egui::Rect::from_center_size(menu.response.rect.center(), Vec2::splat(BUTTON_ICON_SIZE));
     paint_button_icon_at(ui, icon, icon_rect, text_dark());
     menu.response.on_hover_text(tooltip)
+}
+
+/// Header action menus sit against the right edge of their pane. Align their
+/// popup's outer right edge to the trigger instead of using the usual left
+/// edge anchor.
+pub(super) fn right_aligned_icon_menu_button<R>(
+    ui: &mut Ui,
+    icon: ButtonIcon,
+    tooltip: &str,
+    popup_width: f32,
+    add_contents: impl FnOnce(&mut Ui) -> R,
+) -> egui::Response {
+    let menu = aligned_menu_custom_button(
+        ui,
+        egui::Button::new("").min_size(ICON_BUTTON_SIZE),
+        Some(popup_width),
+        add_contents,
+    );
+    let icon_rect =
+        egui::Rect::from_center_size(menu.response.rect.center(), Vec2::splat(BUTTON_ICON_SIZE));
+    paint_button_icon_at(ui, icon, icon_rect, text_dark());
+    menu.response.on_hover_text(tooltip)
+}
+
+pub(super) fn paint_submenu_icon(ui: &Ui, response: &egui::Response, opens_left: bool) {
+    let color = if ui.is_enabled() {
+        text_dark()
+    } else {
+        ui.visuals().widgets.noninteractive.fg_stroke.color
+    };
+    let rect = egui::Rect::from_center_size(
+        egui::pos2(response.rect.right() - 12.0, response.rect.center().y),
+        Vec2::splat(16.0),
+    );
+    let icon = if opens_left {
+        ButtonIcon::ListDropdownLeft
+    } else {
+        ButtonIcon::ListDropdownRight
+    };
+    let image = button_icon_image(ui, icon, color, 16.0);
+    image.paint_at(ui, rect);
+}
+
+/// Show a hover submenu to the left of a row in a right-anchored parent menu.
+/// The union of the row and the last popup rectangle forms a pointer corridor,
+/// so crossing the small inter-menu gap does not collapse the child.
+pub(super) fn left_opening_menu_popup<R>(
+    ui: &mut Ui,
+    response: &egui::Response,
+    popup_id: egui::Id,
+    popup_width: f32,
+    add_contents: impl FnOnce(&mut Ui) -> R,
+) -> Option<R> {
+    let previous_rect = egui::AreaState::load(ui.ctx(), popup_id).map(|state| state.rect());
+    let pointer = ui.input(|input| input.pointer.hover_pos());
+    let was_open = ui.data(|data| data.get_temp::<bool>(popup_id).unwrap_or(false));
+    let pointer_in_path = pointer.is_some_and(|pointer| {
+        previous_rect
+            .map(|rect| rect.union(response.rect).contains(pointer))
+            .unwrap_or(false)
+    });
+    if !(response.hovered() || response.clicked() || was_open && pointer_in_path) {
+        ui.data_mut(|data| data.insert_temp(popup_id, false));
+        return None;
+    }
+
+    let menu_frame = Frame::menu(ui.style());
+    let parent_outer_left = ui.max_rect().left() - menu_frame.total_margin().left;
+    let position = egui::pos2(
+        parent_outer_left - ui.spacing().menu_spacing,
+        response.rect.top(),
+    );
+    let shown = egui::Area::new(popup_id)
+        .kind(egui::UiKind::Menu)
+        .order(egui::Order::Foreground)
+        .pivot(Align2::RIGHT_TOP)
+        .fixed_pos(position)
+        .default_width(popup_width)
+        .show(ui.ctx(), |ui| {
+            menu_frame
+                .show(ui, |ui| {
+                    ui.with_layout(
+                        egui::Layout::top_down_justified(egui::Align::LEFT),
+                        add_contents,
+                    )
+                    .inner
+                })
+                .inner
+        });
+
+    let keep_open =
+        pointer.is_some_and(|pointer| shown.response.rect.union(response.rect).contains(pointer));
+    ui.data_mut(|data| data.insert_temp(popup_id, keep_open));
+    Some(shown.inner)
+}
+
+pub(super) fn right_opening_menu_popup<R>(
+    ui: &mut Ui,
+    response: &egui::Response,
+    popup_id: egui::Id,
+    popup_width: f32,
+    add_contents: impl FnOnce(&mut Ui) -> R,
+) -> Option<R> {
+    let previous_rect = egui::AreaState::load(ui.ctx(), popup_id).map(|state| state.rect());
+    let pointer = ui.input(|input| input.pointer.hover_pos());
+    let was_open = ui.data(|data| data.get_temp::<bool>(popup_id).unwrap_or(false));
+    let pointer_in_path = pointer.is_some_and(|pointer| {
+        previous_rect
+            .map(|rect| rect.union(response.rect).contains(pointer))
+            .unwrap_or(false)
+    });
+    if !(response.hovered() || response.clicked() || was_open && pointer_in_path) {
+        ui.data_mut(|data| data.insert_temp(popup_id, false));
+        return None;
+    }
+
+    let menu_frame = Frame::menu(ui.style());
+    let parent_outer_right = ui.max_rect().right() + menu_frame.total_margin().right;
+    let position = egui::pos2(
+        parent_outer_right + ui.spacing().menu_spacing,
+        response.rect.top(),
+    );
+    let shown = egui::Area::new(popup_id)
+        .kind(egui::UiKind::Menu)
+        .order(egui::Order::Foreground)
+        .pivot(Align2::LEFT_TOP)
+        .fixed_pos(position)
+        .default_width(popup_width)
+        .show(ui.ctx(), |ui| {
+            menu_frame
+                .show(ui, |ui| {
+                    ui.with_layout(
+                        egui::Layout::top_down_justified(egui::Align::LEFT),
+                        add_contents,
+                    )
+                    .inner
+                })
+                .inner
+        });
+
+    let keep_open =
+        pointer.is_some_and(|pointer| shown.response.rect.union(response.rect).contains(pointer));
+    ui.data_mut(|data| data.insert_temp(popup_id, keep_open));
+    Some(shown.inner)
+}
+
+pub(super) fn right_opening_menu_button<R>(
+    ui: &mut Ui,
+    label: impl Into<egui::WidgetText>,
+    popup_width: f32,
+    add_contents: impl FnOnce(&mut Ui) -> R,
+) -> egui::InnerResponse<Option<R>> {
+    let response = ui.button(label);
+    paint_submenu_icon(ui, &response, false);
+    let popup_id = response.id.with("right_submenu");
+    let group_id = ui.layer_id().id.with("active_right_submenu");
+    let active_before_hover = ui.data(|data| data.get_temp::<egui::Id>(group_id));
+    if response.hovered() || response.clicked() {
+        if let Some(previous_popup_id) = active_before_hover.filter(|id| *id != popup_id) {
+            ui.data_mut(|data| data.insert_temp(previous_popup_id, false));
+        }
+        ui.data_mut(|data| data.insert_temp(group_id, popup_id));
+    }
+    let active = ui.data(|data| data.get_temp::<egui::Id>(group_id));
+    // When moving between sibling rows, keep the popup drawn earlier in this
+    // frame (if any) and draw the newly hovered child on the next frame. This
+    // avoids one-frame overlap without depending on sibling draw order.
+    let switching_siblings = response.hovered()
+        && active_before_hover.is_some_and(|previous| previous != popup_id);
+    let inner = if active == Some(popup_id) && !switching_siblings {
+        right_opening_menu_popup(ui, &response, popup_id, popup_width, add_contents)
+    } else {
+        ui.data_mut(|data| data.insert_temp(popup_id, false));
+        None
+    };
+    if inner.is_none() && active == Some(popup_id) && !switching_siblings {
+        ui.data_mut(|data| data.remove::<egui::Id>(group_id));
+    }
+    egui::InnerResponse::new(inner, response)
+}
+
+pub(super) fn left_opening_menu_button<R>(
+    ui: &mut Ui,
+    label: &str,
+    popup_width: f32,
+    add_contents: impl FnOnce(&mut Ui) -> R,
+) -> Option<R> {
+    let response = ui.button(label);
+    paint_submenu_icon(ui, &response, true);
+    let popup_id = response.id.with(("left_submenu", label));
+    left_opening_menu_popup(ui, &response, popup_id, popup_width, add_contents)
 }
 
 fn button_icon_uri_for_pixels_per_point(

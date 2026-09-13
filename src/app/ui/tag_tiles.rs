@@ -37,6 +37,7 @@ struct TagPaneBehavior<'a> {
     pending_browser_action: Option<BrowserAction>,
 }
 
+
 impl egui_tiles::Behavior<String> for TagPaneBehavior<'_> {
     fn pane_ui(
         &mut self,
@@ -665,4 +666,3 @@ impl Baboon {
         }
     }
 }
-

@@ -399,7 +399,7 @@ impl Baboon {
                                                     if welcome_icon_button(
                                                         ui,
                                                         ButtonIcon::Clear,
-                                                        "Clear recent folders",
+                                                        "Clear Recent Folders",
                                                         text_dark(),
                                                     )
                                                     .clicked()
