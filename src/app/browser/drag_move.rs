@@ -82,14 +82,24 @@ pub(super) fn start(ui: &Ui, response: &egui::Response, key: &str, tag: Option<D
         return false;
     };
     let entries = operation_entries(ui);
-    let items: Vec<DraggedItem> = keys
+    // One pass over the kit's tags for the whole selection, not one per item.
+    let wanted: HashSet<&str> = keys.iter().map(String::as_str).filter(|key| !key.starts_with(FOLDER_PANE_PREFIX)).collect();
+    let found: HashMap<&str, &TagEntry> = entries
+        .as_deref()
         .into_iter()
+        .flatten()
+        .filter(|entry| wanted.contains(entry.key.as_str()))
+        .map(|entry| (entry.key.as_str(), entry))
+        .collect();
+    let items: Vec<DraggedItem> = keys
+        .iter()
+        .cloned()
         .filter_map(|key| {
             if let Some(path) = key.strip_prefix(FOLDER_PANE_PREFIX) {
                 let path = path.replace('/', "\\");
                 return Some(DraggedItem { key, path, folder: true });
             }
-            let entry = entries.as_ref()?.iter().find(|entry| entry.key == key)?;
+            let entry = *found.get(key.as_str())?;
             Some(DraggedItem { path: entry.display_path.replace('/', "\\"), key, folder: false })
         })
         .collect();

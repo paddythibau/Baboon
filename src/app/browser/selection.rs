@@ -7,7 +7,9 @@ pub(in crate::app) struct BrowserSelection {
     pub keys: BTreeSet<String>,
     pub anchor: Option<String>,
     pub focus: Option<String>,
-    pub rows: Vec<(String, String)>,
+    /// The pane's rows in order: key and name. Shared with the listing it
+    /// comes from, so a frame's copies of the selection don't copy it.
+    pub rows: Arc<Vec<(String, String)>>,
 }
 impl BrowserSelection {
     pub fn clear(&mut self) {
@@ -60,6 +62,9 @@ impl BrowserSelection {
         }
     }
     pub fn retain_rows(&mut self) {
+        if self.keys.is_empty() {
+            return;
+        }
         let visible: HashSet<_> = self.rows.iter().map(|row| row.0.as_str()).collect();
         self.keys.retain(|key| visible.contains(key.as_str()));
     }
@@ -388,9 +393,7 @@ mod tests {
     use super::*;
     fn selection() -> BrowserSelection {
         BrowserSelection {
-            rows: ["folder", "a", "b", "c"]
-                .map(|key| (key.into(), key.into()))
-                .into(),
+            rows: Arc::new(["folder", "a", "b", "c"].map(|key| (key.into(), key.into())).into()),
             ..Default::default()
         }
     }

@@ -524,7 +524,7 @@ pub(in crate::app) fn draw_folder_asset_grid(
 ) {
     let order = asset_grid_order(ui, pane_key, pane, entries, entries_signature);
     let visible: Vec<&TagEntry> = order.iter().map(|&index| &entries[index]).collect();
-    if let Some(mut state)=multi(ui) { state.selection.rows=visible.iter().map(|entry| (entry.key.clone(),tag_path::name(&entry.display_path).into())).collect(); state.selection.retain_rows(); begin_multi(ui,&state.pane,state.kit,&state.selection,true); }
+    if let Some(mut state)=multi(ui) { state.selection.rows=Arc::new(visible.iter().map(|entry| (entry.key.clone(),tag_path::name(&entry.display_path).into())).collect()); state.selection.retain_rows(); begin_multi(ui,&state.pane,state.kit,&state.selection,true); }
 
     let game = cx.model.kits[kit_index]
         .source

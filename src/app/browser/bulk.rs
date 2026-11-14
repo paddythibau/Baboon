@@ -436,7 +436,7 @@ impl Baboon {
                 pane.selection.anchor = pane.selection.anchor.take().map(remap);
                 pane.selection.focus = pane.selection.focus.take().map(remap);
                 pane.selected_tag = pane.selected_tag.take().map(remap);
-                for (key, _) in &mut pane.selection.rows {
+                for (key, _) in Arc::make_mut(&mut pane.selection.rows) {
                     if let Some(new) = map.get(key) {
                         *key = new.clone();
                     }
@@ -574,6 +574,17 @@ fn run_files(
     })
 }
 
+/// Loose tags by file path, for looking many up at once.
+fn entries_by_path(entries: &[TagEntry]) -> HashMap<&Path, &TagEntry> {
+    entries
+        .iter()
+        .filter_map(|entry| match &entry.location {
+            TagEntryLocation::LooseFile(path) => Some((path.as_path(), entry)),
+            _ => None,
+        })
+        .collect()
+}
+
 /// The selected items of a bulk delete or move as review rows: folders with a folder
 /// icon, tags with their group's icon, other files with the generic icon.
 pub(in crate::app) fn selection_rows(
@@ -583,13 +594,11 @@ pub(in crate::app) fn selection_rows(
 ) -> Vec<(String, crate::app::browser::bulk_rename::RenameIcon)> {
     use crate::app::browser::bulk_rename::RenameIcon;
     let relative = |path: &Path| tag_path::relative_tag_path(path.strip_prefix(root).unwrap_or(path));
+    let by_path = entries_by_path(entries);
     let mut selected: Vec<_> = roots
         .iter()
         .map(|path| {
-            let entry = entries
-                .iter()
-                .find(|entry| matches!(&entry.location, TagEntryLocation::LooseFile(p) if p == path));
-            match entry {
+            match by_path.get(path.as_path()) {
                 _ if path.is_dir() => (relative(path), RenameIcon::Folder),
                 Some(entry) => (entry.display_path.clone(), RenameIcon::Tag(Some(entry.group_tag))),
                 None => (relative(path), RenameIcon::Tag(None)),
@@ -614,11 +623,8 @@ fn delete_review(
     game: Option<GameId>,
     cancelled: &dyn Fn() -> bool,
 ) -> review::ReviewKind {
-    let entry_at = |path: &Path| {
-        entries
-            .iter()
-            .find(|entry| matches!(&entry.location, TagEntryLocation::LooseFile(p) if p == path))
-    };
+    let by_path = entries_by_path(entries);
+    let entry_at = |path: &Path| by_path.get(path).copied();
     let selected = selection_rows(root, roots, entries);
     let mut referrer_keys = HashSet::new();
     let (mut tags, mut files) = (0, 0);

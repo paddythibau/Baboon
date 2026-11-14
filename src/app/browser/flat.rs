@@ -5,6 +5,8 @@ type FlatRow = (String, String, Option<usize>, Option<usize>);
 struct FlatListing {
     rows: Vec<FlatRow>,
     nodes: Vec<TagTreeNode>,
+    /// `rows` as the selection keeps them, built once per listing.
+    selection_rows: Arc<Vec<(String, String)>>,
 }
 
 fn path_key(path: &Path) -> String {
@@ -60,13 +62,6 @@ pub(super) fn draw(
     let entries = source.full_entry_set();
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     let sort = folder_table_sort_signature(ui);
-    let tick = if sort
-        .is_some_and(|(column, _)| matches!(column, FolderColumn::Modified | FolderColumn::Size))
-    {
-        ui.input(|input| input.time as u64)
-    } else {
-        0
-    };
     (
         _generation,
         entries.as_ptr() as usize,
@@ -78,7 +73,6 @@ pub(super) fn draw(
         folders_first,
         sort,
         Arc::as_ptr(keywords) as usize,
-        tick,
     )
         .hash(&mut hasher);
     let signature = hasher.finish();
@@ -191,16 +185,14 @@ pub(super) fn draw(
         } else {
             rows.splice(0..0, tags);
         }
-        let value = Arc::new((signature, FlatListing { rows, nodes }));
+        let selection_rows = Arc::new(rows.iter().map(|row| (row.0.clone(), row.1.clone())).collect());
+        let value = Arc::new((signature, FlatListing { rows, nodes, selection_rows }));
         ui.data_mut(|data| data.insert_temp(cache_id, value.clone()));
         value
     };
     let rows = &listing.1.rows;
     let nodes = &listing.1.nodes;
-    pane.selection.rows = rows
-        .iter()
-        .map(|row| (row.0.clone(), row.1.clone()))
-        .collect();
+    pane.selection.rows = listing.1.selection_rows.clone();
     pane.selection.retain_rows();
     begin_multi(ui, pane_key, kit, &pane.selection, false);
     // Whether drops may change this kit's files.
