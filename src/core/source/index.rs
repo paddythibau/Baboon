@@ -660,6 +660,14 @@ fn refresh_entry_index_from_cache_with_progress(
             match entry {
                 Some(entry) => {
                     if changed {
+                        // A key re-spelled to match the disk is a new row:
+                        // the old spelling's row and references must go, or
+                        // they stay beside it (keys compare exactly).
+                        if let Some(cached) = cached_by_rel.get(&rel_key)
+                            && cached.key != entry.key
+                        {
+                            removed_keys.push(cached.key.clone());
+                        }
                         touched.push(entry.clone());
                     }
                     entries.push(entry);
@@ -1523,13 +1531,16 @@ mod tests {
         let right = saved.key.clone();
         let shouted = root.join("OBJECTS").join("crate.render_model");
         saved.key = file_entry_key(&shouted);
+        let wrong = saved.key.clone();
         saved.location = TagEntryLocation::LooseFile(shouted);
         let fingerprints = HashMap::from([(
             normalize_rel_path(Path::new("objects/crate.render_model")),
             file_fingerprint(&path).unwrap().unwrap(),
         )]);
         let refreshed = refresh_entry_index_from_cache_with_progress(&root, &names, &[saved], &fingerprints, &|_| Ok(())).unwrap();
-        assert_eq!(refreshed.entries.iter().map(|entry| entry.key.clone()).collect::<Vec<_>>(), [right]);
+        assert_eq!(refreshed.entries.iter().map(|entry| entry.key.clone()).collect::<Vec<_>>(), [right.clone()]);
+        assert_eq!(refreshed.touched.iter().map(|entry| entry.key.clone()).collect::<Vec<_>>(), [right]);
+        assert_eq!(refreshed.removed_keys, [wrong], "the old spelling's row and references are dropped");
         let _ = std::fs::remove_dir_all(&root);
     }
 }
