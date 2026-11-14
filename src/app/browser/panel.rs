@@ -408,7 +408,9 @@ pub(in crate::app) fn draw_folder_browser_pane(
             }
 
             // The folder view is a table: name, then columns the user can
-            // resize, reorder, sort by, and hide.
+            // resize, reorder, sort by, and hide. They follow the pane's
+            // width, measured here, outside the scroll area they widen.
+            pane.table_layout.fit_to(ui.available_width());
             ScrollArea::horizontal()
                 .id_salt(("folder_columns", pane_key))
                 .auto_shrink([false, false])
