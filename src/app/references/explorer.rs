@@ -76,15 +76,21 @@ impl Dialog for ContentExplorer {
                         }
                         ui.add_space(12.0);
                         let query = filter.trim();
-                        let shown = |entries: &[TagEntry]| -> Vec<TagEntry> {
-                            entries
-                                .iter()
-                                .filter(|entry| contains_ignore_ascii_case(&entry.display_path, query))
-                                .cloned()
-                                .collect()
+                        // The rows each list shows (their positions in the
+                        // explorer's lists, and path and group to draw),
+                        // built when the tag or filter changes rather than
+                        // copied every frame.
+                        let lists = {
+                            let id = egui::Id::unique(("ce_rows", &explorer.focus.key, query, explorer.parents.len(), explorer.children.len()));
+                            match ui.data(|data| data.get_temp::<Arc<[ExplorerRows; 2]>>(id)) {
+                                Some(lists) => lists,
+                                None => {
+                                    let lists = Arc::new([explorer_rows(&explorer.parents, query), explorer_rows(&explorer.children, query)]);
+                                    ui.data_mut(|data| data.insert_temp(id, lists.clone()));
+                                    lists
+                                }
+                            }
                         };
-                        let parents = shown(&explorer.parents);
-                        let children = shown(&explorer.children);
                         let gap = 20.0;
                         let column = ((ui.available_width() - gap) / 2.0).floor();
                         // The lists fill what is left of the window, so
@@ -92,23 +98,22 @@ impl Dialog for ContentExplorer {
                         let box_height = (ui.available_height() - 20.0).floor().max(EXPLORER_MIN_BOX_HEIGHT);
                         ui.horizontal_top(|ui| {
                             ui.spacing_mut().item_spacing.x = gap;
-                            for (id, title, list, total, empty) in [
-                                ("ce_parents", "Referenced By", &parents, explorer.parents.len(), "No tags reference this tag."),
-                                ("ce_children", "References", &children, explorer.children.len(), "This tag references no other tags."),
+                            for (id, title, (positions, rows), entries, empty) in [
+                                ("ce_parents", "Referenced By", &lists[0], &explorer.parents, "No tags reference this tag."),
+                                ("ce_children", "References", &lists[1], &explorer.children, "This tag references no other tags."),
                             ] {
+                                let total = entries.len();
                                 ui.allocate_ui_with_layout(
                                     Vec2::new(column, box_height),
                                     egui::Layout::top_down(egui::Align::Min),
                                     |ui| {
                                         ui.set_width(column);
-                                        let rows: Vec<(String, u32)> =
-                                            list.iter().map(|entry| (entry.display_path.clone(), entry.group_tag)).collect();
-                                        let count = if list.len() == total {
+                                        let count = if rows.len() == total {
                                             format!("({total})")
                                         } else {
-                                            format!("({} of {total})", list.len())
+                                            format!("({} of {total})", rows.len())
                                         };
-                                        let notes = match (list.len(), total) {
+                                        let notes = match (rows.len(), total) {
                                             (0, 0) => vec![empty.to_owned()],
                                             (0, _) => vec!["None match the filter.".to_owned()],
                                             _ => Vec::new(),
@@ -118,12 +123,12 @@ impl Dialog for ContentExplorer {
                                             id,
                                             &format!("{title} {count}"),
                                             &notes,
-                                            &rows,
+                                            rows,
                                             EXPLORE_HINT,
                                             game,
                                             box_height,
                                         ) {
-                                            act = Some(ExplorerAct::Navigate(list[row].clone()));
+                                            act = Some(ExplorerAct::Navigate(entries[positions[row]].clone()));
                                         }
                                     },
                                 );
@@ -371,4 +376,17 @@ impl Model {
         children.dedup_by(|a, b| a.key == b.key);
         (children, false)
     }
+}
+
+/// One Content Explorer list as drawn: each shown row's position in the
+/// explorer's list, and its path and group.
+type ExplorerRows = (Vec<usize>, Vec<(String, u32)>);
+
+fn explorer_rows(entries: &[TagEntry], query: &str) -> ExplorerRows {
+    entries
+        .iter()
+        .enumerate()
+        .filter(|(_, entry)| contains_ignore_ascii_case(&entry.display_path, query))
+        .map(|(position, entry)| (position, (entry.display_path.clone(), entry.group_tag)))
+        .unzip()
 }

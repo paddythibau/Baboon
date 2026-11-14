@@ -598,15 +598,24 @@ fn ui_repaint_for_kit_draft(ui: &Ui) {
     ui.ctx().request_repaint();
 }
 
+/// Where `draft`'s Deleted Tags Folder resolves to. Resolving canonicalizes
+/// the kit's folder, a file-system call; the window asks several times a
+/// frame, so the answer is kept for its raw inputs and re-asked once a second.
+fn cached_recovery_folder(ctx: &egui::Context, draft: &CustomEditingKitDraft) -> PathBuf {
+    let key = ("draft_recovery_folder", draft.root_input.trim(), &draft.recovery.folder, &draft.recovery.name, &draft.name, &draft.game);
+    recheck_cached(ctx, key, || crate::app::kits::recovery::draft_recovery_folder(draft))
+}
+
 fn recovery_folder_validation(ctx: &egui::Context, draft: &CustomEditingKitDraft,
     profiles: &[CustomEditingKitProfile], loaded_tags_roots: &[PathBuf]) -> Option<String> {
-    use crate::app::kits::recovery::{draft_recovery_folder, validate_draft_recovery};
+    use crate::app::kits::recovery::validate_draft_recovery;
     if draft.is_campaign_evolved() { return None; }
     let roots: Vec<_> = profiles.iter().map(|p| (p.id.clone(), p.root.clone(), p.tags_folder.clone(), p.game.clone())).collect();
+    let folder = cached_recovery_folder(ctx, draft);
     recheck_cached(ctx, ("recovery_validation", &draft.root_input, &draft.tags_folder_input,
-        &draft.game, &draft.recovery.folder, draft_recovery_folder(draft), roots, loaded_tags_roots), || {
+        &draft.game, &draft.recovery.folder, &folder, roots, loaded_tags_roots), || {
             validate_draft_recovery(draft, profiles).or_else(||
-                crate::core::recovery::validate_folder(&draft_recovery_folder(draft), loaded_tags_roots).err())
+                crate::core::recovery::validate_folder(&folder, loaded_tags_roots).err())
         })
 }
 
@@ -620,8 +629,8 @@ fn draw_recovery_folder_input(ui: &mut Ui, draft: &mut CustomEditingKitDraft,
     let width = ui.available_width();
     let mut default_draft = draft.clone();
     default_draft.recovery.folder = None;
-    let hint = abbreviated_path_display(&draft_recovery_folder(&default_draft));
-    let resolved_before_edit = draft_recovery_folder(draft);
+    let hint = abbreviated_path_display(&cached_recovery_folder(&context, &default_draft));
+    let resolved_before_edit = cached_recovery_folder(&context, draft);
     if ui.add(editing_kit_text_input(&mut draft.recovery_input, width).validation_state(state)
         .hint_text(placeholder_text(&hint))).on_hover_text(resolved_before_edit.display().to_string()).changed() {
         draft.recovery.folder = (!draft.recovery_input.trim().is_empty()).then(|| PathBuf::from(draft.recovery_input.trim()));
@@ -657,7 +666,7 @@ fn draw_recovery_folder_input(ui: &mut Ui, draft: &mut CustomEditingKitDraft,
             draft.error = None;
         }
     });
-    let resolved = draft_recovery_folder(draft);
+    let resolved = cached_recovery_folder(&context, draft);
     if draft.recovery.folder.is_some() {
         ui.label(RichText::new(format!("Resolved location: {}", resolved.display())).small().color(subtle_dark()));
     }
