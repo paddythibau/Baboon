@@ -23,7 +23,7 @@
 mod hs;
 mod types;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -123,6 +123,16 @@ impl ScriptChanges {
 
     pub fn is_empty(&self) -> bool {
         self.by_base.is_empty()
+    }
+
+    /// Whether this deletes the tag at `path` (with extension).
+    fn deletes(&self, path: &str) -> bool {
+        self.kind == ChangeKind::Delete
+            && tag_path::split_extension(path).is_some_and(|(base, group)| {
+                self.by_base.get(&base.to_ascii_lowercase()).is_some_and(|groups| {
+                    groups.iter().any(|(changed, _)| changed.eq_ignore_ascii_case(group))
+                })
+            })
     }
 }
 
@@ -352,6 +362,18 @@ fn collect(
         }
     };
 
+    // A deleted scenario's scripts go with it: its saved copies, and the
+    // `.hsc` files in its `scripts` folder under `data\`, which nothing will
+    // compile any more. A Delete doesn't warn about those.
+    let gone_script_folders: HashSet<String> = kit
+        .entries
+        .iter()
+        .filter(|entry| {
+            tag_path::split_extension(&entry.display_path).is_some_and(|(_, group)| group.eq_ignore_ascii_case("scenario"))
+                && changes.deletes(&entry.display_path)
+        })
+        .map(|entry| tag_path::join(tag_path::parent(&entry.display_path).unwrap_or(""), "scripts").to_ascii_lowercase())
+        .collect();
     if let Some(layout) = KitLayout::from_tags_folder(kit.tags_root) {
         for path in hsc_files(&layout.data) {
             cancel()?;
@@ -361,6 +383,9 @@ fn collect(
             }
             let relative = path.strip_prefix(&layout.data).unwrap_or(&path);
             let folder = relative.parent().map(tag_path::relative_tag_path).unwrap_or_default();
+            if gone_script_folders.contains(&folder.to_ascii_lowercase()) {
+                continue;
+            }
             let name = relative.file_name().and_then(|name| name.to_str()).unwrap_or_default().to_owned();
             scan(name, folder, Location::DataFile(path), text);
         }
@@ -370,7 +395,7 @@ fn collect(
         let TagEntryLocation::LooseFile(original) = &entry.location else { continue };
         let Some((stem, group)) = tag_path::split_extension(&entry.display_path) else { continue };
         let scenario = group.eq_ignore_ascii_case("scenario");
-        if !scenario && !group.eq_ignore_ascii_case("scenario_hs_source_file") {
+        if (!scenario && !group.eq_ignore_ascii_case("scenario_hs_source_file")) || changes.deletes(&entry.display_path) {
             continue;
         }
         cancel()?;

@@ -203,6 +203,17 @@ fn deleting_counts_only_the_paths_that_will_break() {
     assert_eq!(fs::read_to_string(kit.data_script()).unwrap(), SCRIPT);
 }
 
+/// Deleting the scenario too takes its scripts with it: neither its saved
+/// copy nor the `.hsc` in its `scripts` folder is reported as breaking.
+#[test]
+fn deleting_the_scenario_too_reports_none_of_its_scripts() {
+    let kit = Kit::new("script-paths-delete-scenario");
+    let report = kit.check(&ScriptChanges::deleting([GRUNT[0], SCENARIO]));
+    assert!(report.scripts.is_empty(), "{:?}", report.scripts.iter().map(|script| script.path()).collect::<Vec<_>>());
+    // The scenario staying, the same delete still reports its script.
+    assert_eq!(kit.check(&ScriptChanges::deleting([GRUNT[0]])).scripts.len(), 1);
+}
+
 #[test]
 fn a_rename_with_no_new_name_yet_is_listed_but_not_written() {
     let kit = Kit::new("script-paths-pending");
