@@ -422,7 +422,7 @@ pub(in crate::app) fn draw_folder_browser_pane(
                         &mut pane.table_layout,
                     );
                     if pane.mode == BrowserMode::Flat {
-                        flat::draw(ui, &mut pane, pane_key, kit_id, source, generation, folders_before_tags, double_click_to_open, &favorite_keys, &table_keywords, &mut need_scan, &mut load_requests, &mut action);
+                        flat::draw(ui, &mut pane, pane_key, kit_id, source, generation, folders_before_tags, double_click_to_open, &favorite_keys, &table_keywords, &mut need_scan, &mut action);
                     } else { draw_folder_pane_tree(
                         ui,
                         &mut pane,
@@ -1589,7 +1589,6 @@ fn draw_folder_header_common_actions(
                                 extract_label.clone(),
                                 pane.rel_path.clone(),
                                 is_container,
-                                is_loose,
                                 true,
                             )
                         },
@@ -1610,7 +1609,6 @@ fn draw_folder_header_common_actions(
                         extract_label,
                         pane.rel_path.clone(),
                         is_container,
-                        is_loose,
                         true,
                     )
                 {

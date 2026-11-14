@@ -1210,7 +1210,7 @@ fn draw_tree_node_lazy_block(
             &node.label,
             favorited,
             false,
-            |ui| folder_extract_menu_button(ui, node, entries, false, true, false),
+            |ui| folder_extract_menu_button(ui, node, entries, false, false),
         ) {
             clicked = Some(action);
         }
@@ -1452,7 +1452,7 @@ pub(super) fn draw_folder_context_menu_contents(ui: &mut Ui, node: &TagTreeNode,
             &node.label,
             favorited,
             browser_is_folder_pane(ui),
-            |ui| folder_extract_menu_button(ui, node, entries, false, false, false),
+            |ui| folder_extract_menu_button(ui, node, entries, false, false),
         ) {
             clicked = Some(action);
         }
@@ -1541,7 +1541,7 @@ pub(super) fn draw_folder_context_menu_contents(ui: &mut Ui, node: &TagTreeNode,
     // valid in either view, matching their previous availability.
     if (groups_mode || favorite_keys.is_none())
         && let Some(action) =
-            folder_extract_menu_button(ui, node, entries, is_container && !groups_mode, false, groups_mode)
+            folder_extract_menu_button(ui, node, entries, is_container && !groups_mode, groups_mode)
     {
         clicked = Some(action);
     }
@@ -1572,7 +1572,6 @@ fn folder_extract_menu_button(
     node: &TagTreeNode,
     entries: &[TagEntry],
     include_container_tags: bool,
-    loaded_labels: bool,
     groups_mode: bool,
 ) -> Option<BrowserAction> {
     let catalog = operation_entries(ui);
@@ -1623,13 +1622,11 @@ fn folder_extract_menu_button(
         ui,
         entries,
         folder_display_path(node),
-        node.rel_path.clone(),
         container_keys,
         bitmap_keys,
         sound_keys,
         material_shader_keys,
         hlsl_include_keys,
-        loaded_labels,
         include_container_tags,
         false,
     )
@@ -1645,7 +1642,6 @@ pub(in crate::app) fn folder_tree_extract_menu_button(
     label: String,
     rel_path: PathBuf,
     include_container_tags: bool,
-    loaded_labels: bool,
     open_left: bool,
 ) -> Option<BrowserAction> {
     let catalog = operation_entries(ui);
@@ -1708,13 +1704,11 @@ pub(in crate::app) fn folder_tree_extract_menu_button(
         ui,
         entries,
         label,
-        rel_path,
         container_keys,
         bitmap_keys,
         sound_keys,
         material_shader_keys,
         hlsl_include_keys,
-        loaded_labels,
         include_container_tags,
         open_left,
     )
@@ -1773,13 +1767,11 @@ pub(super) fn folder_extract_menu_from_keys(
     ui: &mut Ui,
     entries: &[TagEntry],
     label: String,
-    _rel_path: PathBuf,
     container_keys: Vec<String>,
     bitmap_keys: Vec<String>,
     sound_keys: Vec<String>,
     material_shader_keys: Vec<String>,
     hlsl_include_keys: Vec<String>,
-    _loaded_labels: bool,
     include_container_tags: bool,
     open_left: bool,
 ) -> Option<BrowserAction> {
@@ -3243,7 +3235,7 @@ pub(in crate::app) fn draw_favorites(
                             entries_loaded: true,
                             pending: false,
                         };
-                        folder_extract_menu_button(ui, &folder_node, folder_entries, false, true, false)
+                        folder_extract_menu_button(ui, &folder_node, folder_entries, false, false)
                     },
                 ) {
                     action = Some(folder_action);

@@ -117,11 +117,16 @@ pub(super) fn drag_selection(ui: &Ui, key: &str) -> Option<(KitId, String, Vec<S
     if !state.selection.keys.contains(key) {
         state.selection.click(key, false, false, false);
     }
-    Some((state.kit, state.pane.clone(), state.selection.ordered_keys()))
+    Some((
+        state.kit,
+        state.pane.clone(),
+        state.selection.ordered_keys(),
+    ))
 }
 /// Whether the kit drawing these rows can't be changed.
 pub(super) fn operation_read_only(ui: &Ui) -> bool {
-    ui.data(|data| data.get_temp::<bool>(slot().with("readonly"))).unwrap_or(true)
+    ui.data(|data| data.get_temp::<bool>(slot().with("readonly")))
+        .unwrap_or(true)
 }
 pub(super) fn end_multi(ui: &Ui) -> Option<MultiDraw> {
     let result = multi(ui);
@@ -319,10 +324,8 @@ pub(super) fn draw_multi_menu(ui: &mut Ui) -> Option<BrowserAction> {
         .data(|data| data.get_temp::<Arc<Vec<TagEntry>>>(slot().with("entries")))
         .unwrap_or_default();
     let entries = selection_entries(&keys, &snapshot);
-    let writable = browser_loose_source(ui)
-        && !ui
-            .data(|data| data.get_temp::<bool>(slot().with("readonly")))
-            .unwrap_or(false);
+    // Unknown counts as read-only, as everywhere else.
+    let writable = browser_loose_source(ui) && !operation_read_only(ui);
     let primary: Vec<_> = if state.assets {
         vec![
             ("Rename", BulkAction::Rename),
@@ -373,13 +376,11 @@ pub(super) fn draw_multi_menu(ui: &mut Ui) -> Option<BrowserAction> {
         ui,
         &snapshot,
         "Selected Items".into(),
-        PathBuf::new(),
         export_keys(BulkAction::Raw, &entries),
         export_keys(BulkAction::Bitmaps, &entries),
         export_keys(BulkAction::Sounds, &entries),
         export_keys(BulkAction::Shaders, &entries),
         export_keys(BulkAction::Includes, &entries),
-        false,
         !browser_loose_source(ui),
         false,
     ) {
@@ -393,7 +394,11 @@ mod tests {
     use super::*;
     fn selection() -> BrowserSelection {
         BrowserSelection {
-            rows: Arc::new(["folder", "a", "b", "c"].map(|key| (key.into(), key.into())).into()),
+            rows: Arc::new(
+                ["folder", "a", "b", "c"]
+                    .map(|key| (key.into(), key.into()))
+                    .into(),
+            ),
             ..Default::default()
         }
     }

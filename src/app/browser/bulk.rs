@@ -107,7 +107,11 @@ impl Baboon {
                 stamp: self.model.kit_stamp(),
                 pane,
                 keys,
-                action: if copy { BulkAction::Copy } else { BulkAction::Move },
+                action: if copy {
+                    BulkAction::Copy
+                } else {
+                    BulkAction::Move
+                },
                 destination: Some(root.join(folder)),
             },
             false,
@@ -350,7 +354,12 @@ impl Baboon {
                 BulkAction::Move => "Moving Items".into(),
                 _ => "Copying Items".into(),
             },
-            phase: if request.action == BulkAction::Copy { "Preparing" } else { "Checking references" }.into(),
+            phase: if request.action == BulkAction::Copy {
+                "Preparing"
+            } else {
+                "Checking references"
+            }
+            .into(),
             progress: None,
         });
         self.spawn_job(
@@ -593,16 +602,18 @@ pub(in crate::app) fn selection_rows(
     entries: &[TagEntry],
 ) -> Vec<(String, crate::app::browser::bulk_rename::RenameIcon)> {
     use crate::app::browser::bulk_rename::RenameIcon;
-    let relative = |path: &Path| tag_path::relative_tag_path(path.strip_prefix(root).unwrap_or(path));
+    let relative =
+        |path: &Path| tag_path::relative_tag_path(path.strip_prefix(root).unwrap_or(path));
     let by_path = entries_by_path(entries);
     let mut selected: Vec<_> = roots
         .iter()
-        .map(|path| {
-            match by_path.get(path.as_path()) {
-                _ if path.is_dir() => (relative(path), RenameIcon::Folder),
-                Some(entry) => (entry.display_path.clone(), RenameIcon::Tag(Some(entry.group_tag))),
-                None => (relative(path), RenameIcon::Tag(None)),
-            }
+        .map(|path| match by_path.get(path.as_path()) {
+            _ if path.is_dir() => (relative(path), RenameIcon::Folder),
+            Some(entry) => (
+                entry.display_path.clone(),
+                RenameIcon::Tag(Some(entry.group_tag)),
+            ),
+            None => (relative(path), RenameIcon::Tag(None)),
         })
         .collect();
     selected.sort_by_cached_key(|(path, _)| crate::core::source::natural_key(path));
@@ -653,7 +664,10 @@ fn delete_review(
         .collect();
     referrers.sort_by_cached_key(|(path, _)| crate::core::source::natural_key(path));
     let changes = crate::core::script_paths::ScriptChanges::deleting(
-        entries.iter().filter(|entry| deleting.contains(&entry.key)).map(|entry| entry.display_path.as_str()),
+        entries
+            .iter()
+            .filter(|entry| deleting.contains(&entry.key))
+            .map(|entry| entry.display_path.as_str()),
     );
     let report = crate::app::tag_ops::script_fixes::check(root, game, entries, &changes, cancelled);
     review::ReviewKind::Delete {
@@ -720,7 +734,9 @@ fn delete_files(
             })
             .collect::<Result<Vec<_>, _>>()?;
         let deleting:HashSet<_>=entries.iter().filter(|entry|matches!(&entry.location,TagEntryLocation::LooseFile(path) if snapshot.contains_key(path))).map(|entry|entry.key.clone()).collect();
-        let review = delete_review(root, &roots, &snapshot, &entries, &deleting, &index, names, game, &cancelled);
+        let review = delete_review(
+            root, &roots, &snapshot, &entries, &deleting, &index, names, game, &cancelled,
+        );
         let (tags, other_files) = match &review {
             review::ReviewKind::Delete { tags, files, .. } => (*tags, *files),
             _ => (0, 0),
@@ -728,16 +744,35 @@ fn delete_files(
         review::ask_again(tx, &context.control, review, rebuilt.take())?;
         let current_entries =
             scan_folder_subtree_entries(root, Path::new(""), names).map_err(|e| e.to_string())?;
-        let shown = |path: &Path| path.strip_prefix(root).map(tag_path::relative_tag_path).unwrap_or_else(|_| path.display().to_string());
+        let shown = |path: &Path| {
+            path.strip_prefix(root)
+                .map(tag_path::relative_tag_path)
+                .unwrap_or_else(|_| path.display().to_string())
+        };
         let mut reasons = Vec::new();
         // Compared as files: letter case and separators aside.
-        let now: HashSet<_> = current_entries.iter().map(|entry| crate::core::tag_key::key_identity(&entry.key)).collect();
-        let before: HashSet<_> = entries.iter().map(|entry| crate::core::tag_key::key_identity(&entry.key)).collect();
+        let now: HashSet<_> = current_entries
+            .iter()
+            .map(|entry| crate::core::tag_key::key_identity(&entry.key))
+            .collect();
+        let before: HashSet<_> = entries
+            .iter()
+            .map(|entry| crate::core::tag_key::key_identity(&entry.key))
+            .collect();
         if now != before {
             let new: Vec<_> = now.difference(&before).collect();
             let gone: Vec<_> = before.difference(&now).collect();
-            let example = new.first().or(gone.first()).map(|key| key.strip_prefix("file:").unwrap_or(key)).map(|path| shown(Path::new(path))).unwrap_or_default();
-            reasons.push(format!("the kit's tags changed ({} new, {} gone, such as {example})", new.len(), gone.len()));
+            let example = new
+                .first()
+                .or(gone.first())
+                .map(|key| key.strip_prefix("file:").unwrap_or(key))
+                .map(|path| shown(Path::new(path)))
+                .unwrap_or_default();
+            reasons.push(format!(
+                "the kit's tags changed ({} new, {} gone, such as {example})",
+                new.len(),
+                gone.len()
+            ));
         }
         let mut edited = Vec::new();
         for (path, info) in metadata {
@@ -750,7 +785,11 @@ fn delete_files(
             }
         }
         if let Some(first) = edited.first() {
-            reasons.push(format!("{} tag(s) were edited, such as {}", edited.len(), shown(first)));
+            reasons.push(format!(
+                "{} tag(s) were edited, such as {}",
+                edited.len(),
+                shown(first)
+            ));
         }
         if snapshot != disk::snapshot(&roots, &cancelled)? {
             reasons.push("the selected items changed".to_owned());
@@ -763,8 +802,12 @@ fn delete_files(
                     "Files kept changing while the review was open ({reason}). Nothing was deleted; try again, or reload the kit if it repeats."
                 ));
             }
-            let _ = tx.send(WorkerMessage::TerminalLine(format!("Rebuilding the review: {reason}")));
-            rebuilt = Some(format!("Files changed while this was open, so it was checked again: {reason}."));
+            let _ = tx.send(WorkerMessage::TerminalLine(format!(
+                "Rebuilding the review: {reason}"
+            )));
+            rebuilt = Some(format!(
+                "Files changed while this was open, so it was checked again: {reason}."
+            ));
             previous_index = Some(index);
             // From what is on disk now, so a stale remembered tag can't make
             // every rebuild disagree again.
@@ -825,9 +868,7 @@ fn delete_files(
             .collect::<Vec<_>>();
         refactor::persist_refactor_indexes(root, game, &all_entries, Some(&index), &changes, tx);
         return Ok(FolderRefactorFinished {
-            status: format!(
-                "Deleted {tags} tags and {other_files} other files"
-            ),
+            status: format!("Deleted {tags} tags and {other_files} other files"),
             lines: vec![format!("Deleted items preserved at {}", files.display())],
             tree,
             all_entries,
@@ -887,7 +928,8 @@ mod tests {
                 }
             }
         });
-        let req = BulkRequest { destination: None,
+        let req = BulkRequest {
+            destination: None,
             stamp: KitStamp {
                 kit: KitId(0),
                 generation: 0,
@@ -1067,19 +1109,45 @@ mod tests {
     fn the_delete_review_lists_the_selection_and_every_tag_left_with_missing_references() {
         let kit = mixed_kit();
         let paths = vec![
-            (kit.key("from/a.render_model"), kit.path("from/a.render_model")),
-            (folder_pane_key(Path::new("from/group")), kit.path("from/group")),
+            (
+                kit.key("from/a.render_model"),
+                kit.path("from/a.render_model"),
+            ),
+            (
+                folder_pane_key(Path::new("from/group")),
+                kit.path("from/group"),
+            ),
         ];
         let (tx, rx) = mpsc::channel();
         let responder = std::thread::spawn(move || {
             let mut seen = None;
             while let Ok(message) = rx.recv() {
                 if let WorkerMessage::FolderMergeReview(request) = message {
-                    if let review::ReviewKind::Delete { selected, referrers, tags, files, folders, .. } = &request.kind {
-                        let selected: Vec<_> = selected.iter().map(|(path, icon)| {
-                            (path.replace('\\', "/"), matches!(icon, crate::app::browser::bulk_rename::RenameIcon::Folder))
-                        }).collect();
-                        let referrers: Vec<_> = referrers.iter().map(|(path, _)| path.replace('\\', "/")).collect();
+                    if let review::ReviewKind::Delete {
+                        selected,
+                        referrers,
+                        tags,
+                        files,
+                        folders,
+                        ..
+                    } = &request.kind
+                    {
+                        let selected: Vec<_> = selected
+                            .iter()
+                            .map(|(path, icon)| {
+                                (
+                                    path.replace('\\', "/"),
+                                    matches!(
+                                        icon,
+                                        crate::app::browser::bulk_rename::RenameIcon::Folder
+                                    ),
+                                )
+                            })
+                            .collect();
+                        let referrers: Vec<_> = referrers
+                            .iter()
+                            .map(|(path, _)| path.replace('\\', "/"))
+                            .collect();
                         seen = Some((selected, referrers, *tags, *files, *folders));
                     }
                     let _ = request.answer.send(None);
@@ -1087,21 +1155,46 @@ mod tests {
             }
             seen
         });
-        let req = BulkRequest { destination: None,
-            stamp: KitStamp { kit: KitId(0), generation: 0 },
+        let req = BulkRequest {
+            destination: None,
+            stamp: KitStamp {
+                kit: KitId(0),
+                generation: 0,
+            },
             pane: "test".into(),
             keys: paths.iter().map(|(key, _)| key.clone()).collect(),
             action: BulkAction::Delete,
         };
         let result = run_files(
-            kit.root.clone(), paths, None, req, kit.names(), GameId::from_id(kit.game),
-            kit.entries(), Some(kit.index()), context(&kit), &tx,
+            kit.root.clone(),
+            paths,
+            None,
+            req,
+            kit.names(),
+            GameId::from_id(kit.game),
+            kit.entries(),
+            Some(kit.index()),
+            context(&kit),
+            &tx,
         );
         drop(tx);
         assert!(result.is_err(), "cancelling the review deletes nothing");
-        let (selected, referrers, tags, files, folders) = responder.join().unwrap().expect("a delete review");
-        assert_eq!(selected, vec![("from/a.render_model".to_owned(), false), ("from/group".to_owned(), true)]);
-        assert_eq!(referrers, vec!["outside/uses_a.model".to_owned(), "outside/uses_b.model".to_owned()]);
+        let (selected, referrers, tags, files, folders) =
+            responder.join().unwrap().expect("a delete review");
+        assert_eq!(
+            selected,
+            vec![
+                ("from/a.render_model".to_owned(), false),
+                ("from/group".to_owned(), true)
+            ]
+        );
+        assert_eq!(
+            referrers,
+            vec![
+                "outside/uses_a.model".to_owned(),
+                "outside/uses_b.model".to_owned()
+            ]
+        );
         assert_eq!((tags, files, folders), (2, 1, 2));
         assert!(kit.path("from/a.render_model").exists());
     }
@@ -1109,19 +1202,44 @@ mod tests {
     fn the_move_review_lists_the_selection_its_destination_and_every_reference_to_fix() {
         let kit = mixed_kit();
         let paths = vec![
-            (kit.key("from/a.render_model"), kit.path("from/a.render_model")),
-            (folder_pane_key(Path::new("from/group")), kit.path("from/group")),
+            (
+                kit.key("from/a.render_model"),
+                kit.path("from/a.render_model"),
+            ),
+            (
+                folder_pane_key(Path::new("from/group")),
+                kit.path("from/group"),
+            ),
         ];
         let (tx, rx) = mpsc::channel();
         let responder = std::thread::spawn(move || {
             let mut seen = None;
             while let Ok(message) = rx.recv() {
                 if let WorkerMessage::FolderMergeReview(request) = message {
-                    if let review::ReviewKind::Move { selected, referrers, destination, conflicts, .. } = &request.kind {
-                        let selected: Vec<_> = selected.iter().map(|(path, icon)| {
-                            (path.replace('\\', "/"), matches!(icon, crate::app::browser::bulk_rename::RenameIcon::Folder))
-                        }).collect();
-                        let referrers: Vec<_> = referrers.iter().map(|(path, _)| path.replace('\\', "/")).collect();
+                    if let review::ReviewKind::Move {
+                        selected,
+                        referrers,
+                        destination,
+                        conflicts,
+                        ..
+                    } = &request.kind
+                    {
+                        let selected: Vec<_> = selected
+                            .iter()
+                            .map(|(path, icon)| {
+                                (
+                                    path.replace('\\', "/"),
+                                    matches!(
+                                        icon,
+                                        crate::app::browser::bulk_rename::RenameIcon::Folder
+                                    ),
+                                )
+                            })
+                            .collect();
+                        let referrers: Vec<_> = referrers
+                            .iter()
+                            .map(|(path, _)| path.replace('\\', "/"))
+                            .collect();
                         seen = Some((selected, referrers, destination.clone(), *conflicts));
                     }
                     let _ = request.answer.send(None);
@@ -1129,21 +1247,46 @@ mod tests {
             }
             seen
         });
-        let req = BulkRequest { destination: None,
-            stamp: KitStamp { kit: KitId(0), generation: 0 },
+        let req = BulkRequest {
+            destination: None,
+            stamp: KitStamp {
+                kit: KitId(0),
+                generation: 0,
+            },
             pane: "test".into(),
             keys: paths.iter().map(|(key, _)| key.clone()).collect(),
             action: BulkAction::Move,
         };
         let result = run_files(
-            kit.root.clone(), paths, Some(kit.path("dest")), req, kit.names(), GameId::from_id(kit.game),
-            kit.entries(), Some(kit.index()), context(&kit), &tx,
+            kit.root.clone(),
+            paths,
+            Some(kit.path("dest")),
+            req,
+            kit.names(),
+            GameId::from_id(kit.game),
+            kit.entries(),
+            Some(kit.index()),
+            context(&kit),
+            &tx,
         );
         drop(tx);
         assert!(result.is_err(), "cancelling the review moves nothing");
-        let (selected, referrers, destination, conflicts) = responder.join().unwrap().expect("a move review");
-        assert_eq!(selected, vec![("from/a.render_model".to_owned(), false), ("from/group".to_owned(), true)]);
-        assert_eq!(referrers, vec!["outside/uses_a.model".to_owned(), "outside/uses_b.model".to_owned()]);
+        let (selected, referrers, destination, conflicts) =
+            responder.join().unwrap().expect("a move review");
+        assert_eq!(
+            selected,
+            vec![
+                ("from/a.render_model".to_owned(), false),
+                ("from/group".to_owned(), true)
+            ]
+        );
+        assert_eq!(
+            referrers,
+            vec![
+                "outside/uses_a.model".to_owned(),
+                "outside/uses_b.model".to_owned()
+            ]
+        );
         assert_eq!((destination.as_str(), conflicts), ("dest", 0));
         assert!(kit.path("from/a.render_model").exists());
     }
@@ -1220,8 +1363,14 @@ mod tests {
         tags: &[&str],
         destination: Option<&str>,
         go: bool,
-    ) -> (Result<FolderRefactorFinished, String>, Option<super::bulk_rename::ScriptRows>) {
-        let mut paths: Vec<(String, PathBuf)> = folders.iter().map(|folder| (folder_pane_key(Path::new(folder)), kit.path(folder))).collect();
+    ) -> (
+        Result<FolderRefactorFinished, String>,
+        Option<super::bulk_rename::ScriptRows>,
+    ) {
+        let mut paths: Vec<(String, PathBuf)> = folders
+            .iter()
+            .map(|folder| (folder_pane_key(Path::new(folder)), kit.path(folder)))
+            .collect();
         paths.extend(tags.iter().map(|tag| (kit.key(tag), kit.path(tag))));
         let (tx, rx) = mpsc::channel();
         let responder = std::thread::spawn(move || {
@@ -1229,28 +1378,51 @@ mod tests {
             while let Ok(message) = rx.recv() {
                 if let WorkerMessage::FolderMergeReview(request) = message {
                     match &request.kind {
-                        review::ReviewKind::Move { scripts, .. } | review::ReviewKind::Delete { scripts, .. } => {
+                        review::ReviewKind::Move { scripts, .. }
+                        | review::ReviewKind::Delete { scripts, .. } => {
                             seen = Some(scripts.clone());
                         }
                         _ => {}
                     }
-                    let _ = request.answer.send(go.then_some(review::MergeAnswer { choice: None, apply_remaining: false }));
+                    let _ = request.answer.send(go.then_some(review::MergeAnswer {
+                        choice: None,
+                        apply_remaining: false,
+                    }));
                 }
             }
             seen
         });
-        let req = BulkRequest { destination: None,
-            stamp: KitStamp { kit: KitId(0), generation: 0 },
+        let req = BulkRequest {
+            destination: None,
+            stamp: KitStamp {
+                kit: KitId(0),
+                generation: 0,
+            },
             pane: "test".into(),
             keys: paths.iter().map(|(key, _)| key.clone()).collect(),
-            action: if destination.is_some() { BulkAction::Move } else { BulkAction::Delete },
+            action: if destination.is_some() {
+                BulkAction::Move
+            } else {
+                BulkAction::Delete
+            },
         };
         let result = run_files(
-            kit.root.clone(), paths, destination.map(|folder| kit.path(folder)), req, kit.names(), GameId::from_id(kit.game),
-            kit.entries(), Some(kit.index()), context(kit), &tx,
+            kit.root.clone(),
+            paths,
+            destination.map(|folder| kit.path(folder)),
+            req,
+            kit.names(),
+            GameId::from_id(kit.game),
+            kit.entries(),
+            Some(kit.index()),
+            context(kit),
+            &tx,
         );
         drop(tx);
-        (result.map(|outcome| outcome.done), responder.join().unwrap())
+        (
+            result.map(|outcome| outcome.done),
+            responder.join().unwrap(),
+        )
     }
 
     #[test]
@@ -1259,7 +1431,13 @@ mod tests {
         let kit = kit("bulk-move-scripts");
         fs::create_dir_all(kit.path("moved")).unwrap();
         // The scenario moves too: its saved copy is fixed where it lands.
-        let (result, scripts) = run_scripts(&kit, &["objects/characters/grunt", "scenarios/solo/03a"], &[], Some("moved"), true);
+        let (result, scripts) = run_scripts(
+            &kit,
+            &["objects/characters/grunt", "scenarios/solo/03a"],
+            &[],
+            Some("moved"),
+            true,
+        );
         let done = result.unwrap();
         let scripts = scripts.expect("a move review");
         assert_eq!(scripts.rows.len(), 1);
@@ -1269,7 +1447,11 @@ mod tests {
         let expected = SCRIPT.replace(OLD, r"moved\grunt\grunt");
         assert_eq!(data_text(&kit), expected);
         assert_eq!(saved_copy(&kit, "moved/03a/03a.scenario"), expected);
-        assert!(done.status.contains("5 path(s) in 1 script(s)"), "{}", done.status);
+        assert!(
+            done.status.contains("5 path(s) in 1 script(s)"),
+            "{}",
+            done.status
+        );
     }
 
     #[test]
@@ -1280,15 +1462,30 @@ mod tests {
         kit.install_indexed(&mut app);
         let key = kit.key("from/a.render_model");
         app.handle_browser_action(
-            BrowserAction::DropItems { pane: "test".into(), keys: vec![key], copy: false, folder: PathBuf::from("dest") },
+            BrowserAction::DropItems {
+                pane: "test".into(),
+                keys: vec![key],
+                copy: false,
+                folder: PathBuf::from("dest"),
+            },
             ctx(),
         );
         let merge = app.tag_ops.folder_merge.as_ref().expect("a review");
-        let preview = merge.items_preview.as_ref().expect("the review opens at once");
-        assert_eq!(preview.action, review::ItemsAction::Move { destination: "dest".into() });
+        let preview = merge
+            .items_preview
+            .as_ref()
+            .expect("the review opens at once");
+        assert_eq!(
+            preview.action,
+            review::ItemsAction::Move {
+                destination: "dest".into()
+            }
+        );
         // Nothing moves until the review is answered; cancelling leaves it.
         merge.control.cancel();
-        pump_until(&mut app, "the cancelled move to finish", |app| app.tag_ops.folder_refactor.is_none());
+        pump_until(&mut app, "the cancelled move to finish", |app| {
+            app.tag_ops.folder_refactor.is_none()
+        });
         assert!(kit.path("from/a.render_model").exists());
         assert!(!kit.path("dest/a.render_model").exists());
     }
@@ -1302,10 +1499,19 @@ mod tests {
         let mut permissions = fs::metadata(&data).unwrap().permissions();
         permissions.set_readonly(true);
         fs::set_permissions(&data, permissions.clone()).unwrap();
-        let (result, _) = run_scripts(&kit, &["objects/characters/grunt", "scenarios/solo/03a"], &[], Some("moved"), true);
+        let (result, _) = run_scripts(
+            &kit,
+            &["objects/characters/grunt", "scenarios/solo/03a"],
+            &[],
+            Some("moved"),
+            true,
+        );
         let error = result.err().expect("the read-only script stops the move");
         assert!(error.contains("read-only"), "{error}");
-        assert!(kit.path("objects/characters/grunt/grunt.biped").exists(), "the tags are back");
+        assert!(
+            kit.path("objects/characters/grunt/grunt.biped").exists(),
+            "the tags are back"
+        );
         assert!(!kit.path("moved/grunt").exists());
         assert_eq!(saved_copy(&kit, SCENARIO), SCRIPT);
         #[allow(clippy::permissions_set_readonly_false)]
@@ -1318,7 +1524,13 @@ mod tests {
     fn the_bulk_delete_review_lists_scripts_that_will_lose_their_tags() {
         use crate::app::tag_ops::script_fixes::fixture::*;
         let kit = kit("bulk-delete-scripts");
-        let (result, scripts) = run_scripts(&kit, &[], &["objects/characters/grunt/grunt.biped"], None, false);
+        let (result, scripts) = run_scripts(
+            &kit,
+            &[],
+            &["objects/characters/grunt/grunt.biped"],
+            None,
+            false,
+        );
         assert!(result.is_err(), "cancelled");
         let scripts = scripts.expect("a delete review");
         assert_eq!(scripts.rows[0].count, "2 paths");

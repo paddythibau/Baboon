@@ -59,8 +59,7 @@ pub(crate) fn script_support(game: Option<GameId>) -> Option<ScriptSupport> {
 }
 
 /// The note for games whose scripts Baboon does not check.
-pub(crate) const NOT_CHECKED_NOTE: &str =
-    "Baboon doesn't check this game's script tags yet. Scripts that use these tags may need their paths fixed by hand.";
+pub(crate) const NOT_CHECKED_NOTE: &str = "Baboon doesn't check this game's script tags yet. Scripts that use these tags may need their paths fixed by hand.";
 
 /// Whether tags are being renamed (moved) or deleted.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -82,7 +81,10 @@ pub(crate) struct ScriptChanges {
 
 impl ScriptChanges {
     pub fn new(kind: ChangeKind) -> Self {
-        Self { kind, by_base: HashMap::new() }
+        Self {
+            kind,
+            by_base: HashMap::new(),
+        }
     }
 
     /// Renames, as `(old, new)` tag paths with extensions. A `None` new path
@@ -106,9 +108,14 @@ impl ScriptChanges {
     }
 
     fn add(&mut self, old: &str, new: Option<&str>) {
-        let Some((base, group)) = tag_path::split_extension(old) else { return };
+        let Some((base, group)) = tag_path::split_extension(old) else {
+            return;
+        };
         let new = new.map(|new| tag_path::without_extension(new).to_owned());
-        if new.as_deref().is_some_and(|new| new.eq_ignore_ascii_case(base)) {
+        if new
+            .as_deref()
+            .is_some_and(|new| new.eq_ignore_ascii_case(base))
+        {
             return;
         }
         self.by_base
@@ -129,9 +136,13 @@ impl ScriptChanges {
     fn deletes(&self, path: &str) -> bool {
         self.kind == ChangeKind::Delete
             && tag_path::split_extension(path).is_some_and(|(base, group)| {
-                self.by_base.get(&base.to_ascii_lowercase()).is_some_and(|groups| {
-                    groups.iter().any(|(changed, _)| changed.eq_ignore_ascii_case(group))
-                })
+                self.by_base
+                    .get(&base.to_ascii_lowercase())
+                    .is_some_and(|groups| {
+                        groups
+                            .iter()
+                            .any(|(changed, _)| changed.eq_ignore_ascii_case(group))
+                    })
             })
     }
 }
@@ -187,7 +198,10 @@ impl ScriptImpact {
     }
 
     pub fn count(&self, outcome: Outcome) -> usize {
-        self.hits.iter().filter(|hit| hit.outcome == outcome).count()
+        self.hits
+            .iter()
+            .filter(|hit| hit.outcome == outcome)
+            .count()
     }
 }
 
@@ -217,7 +231,10 @@ impl ScriptFixSummary {
         if self.fixed == 0 && self.cant_fix == 0 {
             return None;
         }
-        let mut line = format!("Updated {} path(s) in {} script(s)", self.fixed, self.scripts);
+        let mut line = format!(
+            "Updated {} path(s) in {} script(s)",
+            self.fixed, self.scripts
+        );
         if self.cant_fix > 0 {
             line.push_str(&format!(
                 "; {} script path(s) could mean more than one tag and were left unchanged",
@@ -246,10 +263,16 @@ pub(crate) fn check_scripts(
     cancelled: &dyn Fn() -> bool,
 ) -> Result<ScriptReport, String> {
     if changes.is_empty() || script_support(Some(kit.game)) != Some(ScriptSupport::Checked) {
-        return Ok(ScriptReport { kind: changes.kind, scripts: Vec::new() });
+        return Ok(ScriptReport {
+            kind: changes.kind,
+            scripts: Vec::new(),
+        });
     }
     let copies = collect(kit, changes, &|path| path.to_path_buf(), cancelled)?;
-    Ok(ScriptReport { kind: changes.kind, scripts: impacts(&copies) })
+    Ok(ScriptReport {
+        kind: changes.kind,
+        scripts: impacts(&copies),
+    })
 }
 
 /// Rewrite the paths `changes` renames in every copy of every script,
@@ -291,19 +314,31 @@ pub(crate) fn fix_scripts(
         let text = apply_edits(&copy.text, &copy.edits);
         match copy.location {
             Location::DataFile(path) => data_files.push((path, text)),
-            Location::Tag { entry, path, element } => {
-                tags.entry(path).or_insert_with(|| (entry, Vec::new())).1.push((element, text));
+            Location::Tag {
+                entry,
+                path,
+                element,
+            } => {
+                tags.entry(path)
+                    .or_insert_with(|| (entry, Vec::new()))
+                    .1
+                    .push((element, text));
             }
         }
     }
     for (path, text) in data_files {
         transaction.will_modify(&path)?;
-        write_file(&path, &text).map_err(|error| format!("Could not update script {}: {error}", path.display()))?;
+        write_file(&path, &text)
+            .map_err(|error| format!("Could not update script {}: {error}", path.display()))?;
         summary.files_written += 1;
     }
     for (path, (entry, texts)) in tags {
-        let mut tag = read_entry(kit.source, &entry)
-            .map_err(|error| format!("Could not read {} to update its scripts: {error}", entry.display_path))?;
+        let mut tag = read_entry(kit.source, &entry).map_err(|error| {
+            format!(
+                "Could not read {} to update its scripts: {error}",
+                entry.display_path
+            )
+        })?;
         for (element, text) in texts {
             let field = match element {
                 Some(index) => format!("source files[{index}]/source"),
@@ -313,11 +348,20 @@ pub(crate) fn fix_scripts(
                 .field_path_mut(&field)
                 .ok_or_else(|| format!("{} has no {field} field", entry.display_path))?
                 .set(TagFieldData::Data(text))
-                .map_err(|error| format!("Could not update a script in {}: {error:?}", entry.display_path))?;
+                .map_err(|error| {
+                    format!(
+                        "Could not update a script in {}: {error:?}",
+                        entry.display_path
+                    )
+                })?;
         }
         transaction.will_modify(&path)?;
-        tag.write_atomic(&path)
-            .map_err(|error| format!("Could not update the scripts in {}: {error}", entry.display_path))?;
+        tag.write_atomic(&path).map_err(|error| {
+            format!(
+                "Could not update the scripts in {}: {error}",
+                entry.display_path
+            )
+        })?;
         summary.files_written += 1;
     }
     Ok(summary)
@@ -329,7 +373,11 @@ enum Location {
     DataFile(PathBuf),
     /// In a tag: element `element` of its `source files` block, or (`None`)
     /// the tag's own `source` field.
-    Tag { entry: TagEntry, path: PathBuf, element: Option<usize> },
+    Tag {
+        entry: TagEntry,
+        path: PathBuf,
+        element: Option<usize>,
+    },
 }
 
 /// One copy of a script, scanned.
@@ -350,7 +398,11 @@ fn collect(
     cancelled: &dyn Fn() -> bool,
 ) -> Result<Vec<ScannedCopy>, String> {
     let cancel = || -> Result<(), String> {
-        if cancelled() { Err("Cancelled".to_owned()) } else { Ok(()) }
+        if cancelled() {
+            Err("Cancelled".to_owned())
+        } else {
+            Ok(())
+        }
     };
     let resolver = Resolver::new(kit, changes);
     let needles = resolver.needles();
@@ -358,7 +410,14 @@ fn collect(
     let mut scan = |name: String, folder: String, location: Location, text: Vec<u8>| {
         let (hits, edits) = resolver.scan(&text);
         if !hits.is_empty() || !edits.is_empty() {
-            copies.push(ScannedCopy { name, folder, location, text, hits, edits });
+            copies.push(ScannedCopy {
+                name,
+                folder,
+                location,
+                text,
+                hits,
+                edits,
+            });
         }
     };
 
@@ -369,10 +428,17 @@ fn collect(
         .entries
         .iter()
         .filter(|entry| {
-            tag_path::split_extension(&entry.display_path).is_some_and(|(_, group)| group.eq_ignore_ascii_case("scenario"))
+            tag_path::split_extension(&entry.display_path)
+                .is_some_and(|(_, group)| group.eq_ignore_ascii_case("scenario"))
                 && changes.deletes(&entry.display_path)
         })
-        .map(|entry| tag_path::join(tag_path::parent(&entry.display_path).unwrap_or(""), "scripts").to_ascii_lowercase())
+        .map(|entry| {
+            tag_path::join(
+                tag_path::parent(&entry.display_path).unwrap_or(""),
+                "scripts",
+            )
+            .to_ascii_lowercase()
+        })
         .collect();
     if let Some(layout) = KitLayout::from_tags_folder(kit.tags_root) {
         for path in hsc_files(&layout.data) {
@@ -382,20 +448,33 @@ fn collect(
                 continue;
             }
             let relative = path.strip_prefix(&layout.data).unwrap_or(&path);
-            let folder = relative.parent().map(tag_path::relative_tag_path).unwrap_or_default();
+            let folder = relative
+                .parent()
+                .map(tag_path::relative_tag_path)
+                .unwrap_or_default();
             if gone_script_folders.contains(&folder.to_ascii_lowercase()) {
                 continue;
             }
-            let name = relative.file_name().and_then(|name| name.to_str()).unwrap_or_default().to_owned();
+            let name = relative
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default()
+                .to_owned();
             scan(name, folder, Location::DataFile(path), text);
         }
     }
 
     for entry in kit.entries {
-        let TagEntryLocation::LooseFile(original) = &entry.location else { continue };
-        let Some((stem, group)) = tag_path::split_extension(&entry.display_path) else { continue };
+        let TagEntryLocation::LooseFile(original) = &entry.location else {
+            continue;
+        };
+        let Some((stem, group)) = tag_path::split_extension(&entry.display_path) else {
+            continue;
+        };
         let scenario = group.eq_ignore_ascii_case("scenario");
-        if (!scenario && !group.eq_ignore_ascii_case("scenario_hs_source_file")) || changes.deletes(&entry.display_path) {
+        if (!scenario && !group.eq_ignore_ascii_case("scenario_hs_source_file"))
+            || changes.deletes(&entry.display_path)
+        {
             continue;
         }
         cancel()?;
@@ -406,17 +485,31 @@ fn collect(
         }
         let mut current = entry.clone();
         current.location = TagEntryLocation::LooseFile(path.clone());
-        let Ok(tag) = read_entry(kit.source, &current) else { continue };
+        let Ok(tag) = read_entry(kit.source, &current) else {
+            continue;
+        };
         let parent = tag_path::parent(&entry.display_path).unwrap_or("");
         if scenario {
             let folder = tag_path::join(parent, "scripts");
             for (index, name, text) in scenario_sources(&tag) {
-                let location = Location::Tag { entry: current.clone(), path: path.clone(), element: Some(index) };
+                let location = Location::Tag {
+                    entry: current.clone(),
+                    path: path.clone(),
+                    element: Some(index),
+                };
                 scan(format!("{name}.hsc"), folder.clone(), location, text);
             }
-        } else if let Some(TagFieldData::Data(text)) = tag.root().field_path("source").and_then(|field| field.value()) {
+        } else if let Some(TagFieldData::Data(text)) = tag
+            .root()
+            .field_path("source")
+            .and_then(|field| field.value())
+        {
             let name = format!("{}.hsc", tag_path::name(stem));
-            let location = Location::Tag { entry: current.clone(), path: path.clone(), element: None };
+            let location = Location::Tag {
+                entry: current.clone(),
+                path: path.clone(),
+                element: None,
+            };
             scan(name, parent.to_owned(), location, text);
         }
     }
@@ -428,7 +521,9 @@ fn collect(
 /// such block. Shared with the script export and import.
 pub(crate) fn scenario_source_files(tag: &TagFile) -> Option<Vec<(String, Vec<u8>)>> {
     let root = tag.root();
-    let block = root.field_path("source files").and_then(|field| field.as_block())?;
+    let block = root
+        .field_path("source files")
+        .and_then(|field| field.as_block())?;
     Some(
         (0..block.len())
             .filter_map(|index| block.element(index))
@@ -462,7 +557,10 @@ fn impacts(copies: &[ScannedCopy]) -> Vec<ScriptImpact> {
     let mut by_key: BTreeMap<(String, String), Vec<&ScannedCopy>> = BTreeMap::new();
     for copy in copies {
         by_key
-            .entry((copy.folder.to_ascii_lowercase(), copy.name.to_ascii_lowercase()))
+            .entry((
+                copy.folder.to_ascii_lowercase(),
+                copy.name.to_ascii_lowercase(),
+            ))
             .or_default()
             .push(copy);
     }
@@ -508,10 +606,15 @@ impl<'a> Resolver<'a> {
     fn new(kit: &ScriptKit, changes: &'a ScriptChanges) -> Self {
         let mut catalog: HashMap<String, Vec<String>> = HashMap::new();
         for entry in kit.entries {
-            let Some((base, group)) = tag_path::split_extension(&entry.display_path) else { continue };
+            let Some((base, group)) = tag_path::split_extension(&entry.display_path) else {
+                continue;
+            };
             let base = base.to_ascii_lowercase();
             if changes.by_base.contains_key(&base) {
-                catalog.entry(base).or_default().push(group.to_ascii_lowercase());
+                catalog
+                    .entry(base)
+                    .or_default()
+                    .push(group.to_ascii_lowercase());
             }
         }
         // A change for a tag the entries do not list still counts.
@@ -523,7 +626,12 @@ impl<'a> Resolver<'a> {
                 }
             }
         }
-        Self { changes, catalog, signatures: Signatures::for_game(kit.game), objects: types::object_groups(kit.game) }
+        Self {
+            changes,
+            catalog,
+            signatures: Signatures::for_game(kit.game),
+            objects: types::object_groups(kit.game),
+        }
     }
 
     /// Lowercased byte strings any affected script must contain: the folders
@@ -548,7 +656,10 @@ impl<'a> Resolver<'a> {
         let normalized = written.replace('/', "\\").to_ascii_lowercase();
         let (base, explicit) = match tag_path::split_extension(&normalized) {
             Some((base, extension))
-                if self.catalog.get(base).is_some_and(|groups| groups.iter().any(|group| group == extension)) =>
+                if self
+                    .catalog
+                    .get(base)
+                    .is_some_and(|groups| groups.iter().any(|group| group == extension)) =>
             {
                 (base.to_owned(), Some(extension.to_owned()))
             }
@@ -557,9 +668,15 @@ impl<'a> Resolver<'a> {
         let groups = self.catalog.get(&base)?;
         let changed = self.changes.by_base.get(&base)?;
         let (candidates, typed): (Vec<&String>, bool) = match (&explicit, expected) {
-            (Some(extension), _) => (groups.iter().filter(|group| *group == extension).collect(), true),
+            (Some(extension), _) => (
+                groups.iter().filter(|group| *group == extension).collect(),
+                true,
+            ),
             (None, Expected::Tag { kind, .. }) => {
-                let fitting: Vec<_> = groups.iter().filter(|group| self.accepts(kind, group)).collect();
+                let fitting: Vec<_> = groups
+                    .iter()
+                    .filter(|group| self.accepts(kind, group))
+                    .collect();
                 if fitting.is_empty() {
                     (groups.iter().collect(), false)
                 } else {
@@ -584,15 +701,27 @@ impl<'a> Resolver<'a> {
                 let first = news[0].clone();
                 if unchanged == 0 && news.iter().all(|new| new == &first) {
                     let new = first.map(|new| written_like(written, &new, explicit.as_deref()));
-                    Resolution { outcome: Outcome::Fixed, new }
+                    Resolution {
+                        outcome: Outcome::Fixed,
+                        new,
+                    }
                 } else {
-                    Resolution { outcome: Outcome::CantFix, new: None }
+                    Resolution {
+                        outcome: Outcome::CantFix,
+                        new: None,
+                    }
                 }
             }
-            ChangeKind::Delete if unchanged == 0 => Resolution { outcome: Outcome::Missing, new: None },
+            ChangeKind::Delete if unchanged == 0 => Resolution {
+                outcome: Outcome::Missing,
+                new: None,
+            },
             // Another tag of the right type remains for it to mean.
             ChangeKind::Delete if typed => return None,
-            ChangeKind::Delete => Resolution { outcome: Outcome::MayBreak, new: None },
+            ChangeKind::Delete => Resolution {
+                outcome: Outcome::MayBreak,
+                new: None,
+            },
         };
         Some(resolution)
     }
@@ -602,9 +731,15 @@ impl<'a> Resolver<'a> {
         let mut hits = Vec::new();
         let mut edits = Vec::new();
         for token in hs::path_tokens(text) {
-            let Ok(written) = std::str::from_utf8(token.text(text)) else { continue };
+            let Ok(written) = std::str::from_utf8(token.text(text)) else {
+                continue;
+            };
             let expected = match &token.place {
-                Place::Argument { function, index, count } => self.signatures.expected(function, *index, *count),
+                Place::Argument {
+                    function,
+                    index,
+                    count,
+                } => self.signatures.expected(function, *index, *count),
                 Place::GlobalValue { value_type } => types::classify(value_type),
                 Place::Unknown => Expected::Unknown,
                 Place::Text => Expected::NotTag,
@@ -612,14 +747,18 @@ impl<'a> Resolver<'a> {
             if expected == Expected::NotTag {
                 // Not compiled as a tag: update it when that is unambiguous,
                 // but it never breaks a script, so it is not reported.
-                if let Some(Resolution { outcome: Outcome::Fixed, new: Some(new) }) =
-                    self.resolve(written, &Expected::Unknown)
+                if let Some(Resolution {
+                    outcome: Outcome::Fixed,
+                    new: Some(new),
+                }) = self.resolve(written, &Expected::Unknown)
                 {
                     edits.push((token.start, token.end, new));
                 }
                 continue;
             }
-            let Some(resolution) = self.resolve(written, &expected) else { continue };
+            let Some(resolution) = self.resolve(written, &expected) else {
+                continue;
+            };
             if let (Outcome::Fixed, Some(new)) = (resolution.outcome, &resolution.new) {
                 edits.push((token.start, token.end, new.clone()));
             }
@@ -686,7 +825,10 @@ fn needles_for<'a>(bases: impl Iterator<Item = &'a str>) -> Vec<Vec<u8>> {
     // Sorted, a folder comes straight before the folders inside it.
     let mut kept: Vec<String> = Vec::new();
     for prefix in prefixes {
-        if !kept.last().is_some_and(|outer| outer.ends_with('\\') && prefix.starts_with(outer.as_str())) {
+        if !kept
+            .last()
+            .is_some_and(|outer| outer.ends_with('\\') && prefix.starts_with(outer.as_str()))
+        {
             kept.push(prefix);
         }
     }
@@ -702,7 +844,9 @@ fn needles_for<'a>(bases: impl Iterator<Item = &'a str>) -> Vec<Vec<u8>> {
 
 fn contains_any(bytes: &[u8], needles: &[Vec<u8>]) -> bool {
     let lowered = bytes.to_ascii_lowercase();
-    needles.iter().any(|needle| !needle.is_empty() && memchr::memmem::find(&lowered, needle).is_some())
+    needles
+        .iter()
+        .any(|needle| !needle.is_empty() && memchr::memmem::find(&lowered, needle).is_some())
 }
 
 /// Every `.hsc` file under `data`.
@@ -710,14 +854,21 @@ fn hsc_files(data: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     let mut folders = vec![data.to_path_buf()];
     while let Some(folder) = folders.pop() {
-        let Ok(listing) = fs::read_dir(&folder) else { continue };
+        let Ok(listing) = fs::read_dir(&folder) else {
+            continue;
+        };
         for entry in listing.flatten() {
-            let Ok(kind) = entry.file_type() else { continue };
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
             let path = entry.path();
             if kind.is_dir() {
                 folders.push(path);
             } else if kind.is_file()
-                && path.extension().and_then(|extension| extension.to_str()).is_some_and(|extension| extension.eq_ignore_ascii_case("hsc"))
+                && path
+                    .extension()
+                    .and_then(|extension| extension.to_str())
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("hsc"))
             {
                 files.push(path);
             }

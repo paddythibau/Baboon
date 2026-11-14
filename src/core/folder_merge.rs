@@ -126,7 +126,7 @@ impl Conflict {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Inventory {
-    roots: Vec<(PathBuf,PathBuf)>,
+    roots: Vec<(PathBuf, PathBuf)>,
     pub source_items: BTreeMap<PathBuf, Fingerprint>,
     destination_items: BTreeMap<PathBuf, Fingerprint>,
     children: BTreeMap<PathBuf, Vec<PathBuf>>,
@@ -200,21 +200,36 @@ impl Inventory {
         destination: &Path,
         cancelled: &impl Fn() -> bool,
     ) -> Result<Self, String> {
-        Self::scan_many(&[(source.to_owned(),destination.to_owned())],cancelled)
+        Self::scan_many(&[(source.to_owned(), destination.to_owned())], cancelled)
     }
-    pub fn scan_many(roots: &[(PathBuf,PathBuf)], cancelled: &impl Fn()->bool) -> Result<Self,String> {
+    pub fn scan_many(
+        roots: &[(PathBuf, PathBuf)],
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<Self, String> {
         let mut source_items = BTreeMap::new();
         let mut destination_items = BTreeMap::new();
-        for (source,destination) in roots { source_items.extend(tree(source,cancelled)?); destination_items.extend(tree(destination,cancelled)?); }
-        let mut children: BTreeMap<PathBuf,Vec<PathBuf>> = BTreeMap::new();
-        for item in source_items.keys() {
-            children.entry(item.parent().ok_or("Invalid source path")?.to_owned()).or_default().push(item.clone());
+        for (source, destination) in roots {
+            source_items.extend(tree(source, cancelled)?);
+            destination_items.extend(tree(destination, cancelled)?);
         }
-        Ok(Self { roots:roots.to_vec(), source_items, destination_items, children })
+        let mut children: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
+        for item in source_items.keys() {
+            children
+                .entry(item.parent().ok_or("Invalid source path")?.to_owned())
+                .or_default()
+                .push(item.clone());
+        }
+        Ok(Self {
+            roots: roots.to_vec(),
+            source_items,
+            destination_items,
+            children,
+        })
     }
-    pub fn unchanged(&self, cancelled: &impl Fn()->bool) -> Result<bool,String> {
-        let current=Self::scan_many(&self.roots,cancelled)?;
-        Ok(self.source_items==current.source_items && self.destination_items==current.destination_items)
+    pub fn unchanged(&self, cancelled: &impl Fn() -> bool) -> Result<bool, String> {
+        let current = Self::scan_many(&self.roots, cancelled)?;
+        Ok(self.source_items == current.source_items
+            && self.destination_items == current.destination_items)
     }
     pub fn files(&self) -> usize {
         self.source_items.values().filter(|i| !i.directory).count()
@@ -246,8 +261,15 @@ impl Inventory {
             new_directories: HashSet::new(),
         };
         let mut reserved = HashSet::new();
-        for (source,destination) in &self.roots {
-            self.plan_item(source,destination,&mut plan,&mut reserved,&mut decide,cancelled)?;
+        for (source, destination) in &self.roots {
+            self.plan_item(
+                source,
+                destination,
+                &mut plan,
+                &mut reserved,
+                &mut decide,
+                cancelled,
+            )?;
         }
         Ok(plan)
     }
@@ -274,7 +296,7 @@ impl Inventory {
         // not been visited yet. Keep Both must not steal an incoming filename.
         let occupied = || {
             let mut occupied = reserved.clone();
-            occupied.extend(self.roots.iter().map(|(_,target)| path_key(target)));
+            occupied.extend(self.roots.iter().map(|(_, target)| path_key(target)));
             if let Some(siblings) = source.parent().and_then(|parent| self.children.get(parent)) {
                 occupied.extend(
                     siblings
@@ -339,8 +361,15 @@ impl Inventory {
 
 use crate::core::tag_key::path_identity as path_key;
 
-pub(crate) fn snapshot(roots: &[PathBuf], cancelled: &impl Fn()->bool) -> Result<BTreeMap<PathBuf,Fingerprint>,String> {
-    let mut result=BTreeMap::new(); for root in roots {result.extend(tree(root,cancelled)?);} Ok(result)
+pub(crate) fn snapshot(
+    roots: &[PathBuf],
+    cancelled: &impl Fn() -> bool,
+) -> Result<BTreeMap<PathBuf, Fingerprint>, String> {
+    let mut result = BTreeMap::new();
+    for root in roots {
+        result.extend(tree(root, cancelled)?);
+    }
+    Ok(result)
 }
 pub(crate) fn unused_name(
     path: &Path,
@@ -382,7 +411,12 @@ pub(crate) struct Plan {
     new_directories: HashSet<PathBuf>,
 }
 impl Plan {
-    pub fn target_folder(&self,source:&Path)->Option<&Path> {self.source_directories.iter().position(|path|path==source).map(|index|self.directories[index].as_path())}
+    pub fn target_folder(&self, source: &Path) -> Option<&Path> {
+        self.source_directories
+            .iter()
+            .position(|path| path == source)
+            .map(|index| self.directories[index].as_path())
+    }
     pub fn vacant_targets(&self) -> Result<bool, String> {
         for path in self
             .new_directories
@@ -416,17 +450,42 @@ pub(crate) struct Transaction {
 }
 impl Transaction {
     /// Preserve every original before deleting any member of a batch.
-    pub fn delete_items(&mut self, roots: &[PathBuf], mut preserve: impl FnMut(&Path)->Result<(),String>) -> Result<(),String> {
+    pub fn delete_items(
+        &mut self,
+        roots: &[PathBuf],
+        mut preserve: impl FnMut(&Path) -> Result<(), String>,
+    ) -> Result<(), String> {
         let mut items = BTreeMap::new();
-        for root in roots { items.extend(tree(root,&||false)?); }
+        for root in roots {
+            items.extend(tree(root, &|| false)?);
+        }
         // Read-only files refuse before anything changes.
-        for (path,info) in &items { if !info.directory && fingerprint(path)?.readonly { return Err(format!("File is read-only: {}", path.display())); } }
-        for (path,info) in &items { if !info.directory { preserve(path)?; } }
+        for (path, info) in &items {
+            if !info.directory && fingerprint(path)?.readonly {
+                return Err(format!("File is read-only: {}", path.display()));
+            }
+        }
+        for (path, info) in &items {
+            if !info.directory {
+                preserve(path)?;
+            }
+        }
         // Deleting moves each original into the journal: no second copy.
-        for (path,info) in &items { if !info.directory { self.take(path)?; } }
-        let mut dirs: Vec<_> = items.into_iter().filter(|(_,info)|info.directory).map(|(path,_)|path).collect();
-        dirs.sort_by_key(|path|std::cmp::Reverse(path.components().count()));
-        for path in dirs { fs::remove_dir(&path).map_err(|e|e.to_string())?; self.removed_directories.push(path); }
+        for (path, info) in &items {
+            if !info.directory {
+                self.take(path)?;
+            }
+        }
+        let mut dirs: Vec<_> = items
+            .into_iter()
+            .filter(|(_, info)| info.directory)
+            .map(|(path, _)| path)
+            .collect();
+        dirs.sort_by_key(|path| std::cmp::Reverse(path.components().count()));
+        for path in dirs {
+            fs::remove_dir(&path).map_err(|e| e.to_string())?;
+            self.removed_directories.push(path);
+        }
         Ok(())
     }
     /// A journal in the system's temporary folder, for tests and callers with
@@ -437,7 +496,9 @@ impl Transaction {
     /// A journal beside `tags_root` (see [`JOURNAL_FOLDER`]), or in the
     /// temporary folder when that can't be created.
     pub fn for_kit(tags_root: &Path) -> Result<Self, String> {
-        let Some(kit) = tags_root.parent() else { return Self::new() };
+        let Some(kit) = tags_root.parent() else {
+            return Self::new();
+        };
         let folder = kit.join(JOURNAL_FOLDER);
         match fs::create_dir_all(&folder) {
             Ok(()) => Self::at(folder.join(uuid::Uuid::new_v4().to_string())),
@@ -445,8 +506,12 @@ impl Transaction {
         }
     }
     fn at(directory: PathBuf) -> Result<Self, String> {
-        fs::create_dir(&directory)
-            .map_err(|e| format!("Could not create the rollback folder {}: {e}", directory.display()))?;
+        fs::create_dir(&directory).map_err(|e| {
+            format!(
+                "Could not create the rollback folder {}: {e}",
+                directory.display()
+            )
+        })?;
         Ok(Self {
             directory,
             originals: BTreeMap::new(),
@@ -602,8 +667,13 @@ impl Transaction {
                     .and_then(|_| {
                         // Renamed back when it can be. A link at `path` is
                         // never written through: copy_backup refuses it.
-                        let link = fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink());
-                        if !link && fs::rename(backup, path).is_ok() { Ok(()) } else { copy_backup(backup, path) }
+                        let link =
+                            fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink());
+                        if !link && fs::rename(backup, path).is_ok() {
+                            Ok(())
+                        } else {
+                            copy_backup(backup, path)
+                        }
                     })
             } else if self.owned_files.contains(path) && path.exists() {
                 fs::remove_file(path).map_err(|e| e.to_string())
@@ -641,7 +711,9 @@ impl Transaction {
     fn remove_directory(&self) {
         let _ = fs::remove_dir_all(&self.directory);
         if let Some(parent) = self.directory.parent()
-            && parent.file_name().is_some_and(|name| name == JOURNAL_FOLDER)
+            && parent
+                .file_name()
+                .is_some_and(|name| name == JOURNAL_FOLDER)
         {
             let _ = fs::remove_dir(parent);
         }
@@ -684,11 +756,23 @@ mod tests {
 
     #[test]
     fn failed_multi_delete_preservation_rolls_back_every_member() {
-        let tree=Tree::new();tree.write("source/a",b"a");tree.write("target/b",b"b");
-        let mut journal=Transaction::new().unwrap();let mut preserved=0;
-        let result=journal.delete_items(&[tree.0.join("source"),tree.0.join("target")],|_|{preserved+=1;if preserved==2{Err("recovery unavailable".into())}else{Ok(())}});
-        assert!(result.is_err());journal.rollback("failed".into());
-        assert_eq!(fs::read(tree.0.join("source/a")).unwrap(),b"a");assert_eq!(fs::read(tree.0.join("target/b")).unwrap(),b"b");
+        let tree = Tree::new();
+        tree.write("source/a", b"a");
+        tree.write("target/b", b"b");
+        let mut journal = Transaction::new().unwrap();
+        let mut preserved = 0;
+        let result = journal.delete_items(&[tree.0.join("source"), tree.0.join("target")], |_| {
+            preserved += 1;
+            if preserved == 2 {
+                Err("recovery unavailable".into())
+            } else {
+                Ok(())
+            }
+        });
+        assert!(result.is_err());
+        journal.rollback("failed".into());
+        assert_eq!(fs::read(tree.0.join("source/a")).unwrap(), b"a");
+        assert_eq!(fs::read(tree.0.join("target/b")).unwrap(), b"b");
     }
 
     /// A step after the delete fails (the browser refresh, say): every file
@@ -699,18 +783,38 @@ mod tests {
         tree.write("source/a", b"a");
         tree.write("source/sub/b", b"b");
         fs::create_dir_all(tree.0.join("source/empty")).unwrap();
-        let modified = fs::metadata(tree.0.join("source/sub/b")).unwrap().modified().unwrap();
+        let modified = fs::metadata(tree.0.join("source/sub/b"))
+            .unwrap()
+            .modified()
+            .unwrap();
         let mut journal = Transaction::for_kit(&tree.0.join("tags")).unwrap();
-        journal.delete_items(&[tree.0.join("source")], |_| Ok(())).unwrap();
-        assert!(!tree.0.join("source").exists(), "deleted before the failure");
-        assert!(tree.0.join(JOURNAL_FOLDER).is_dir(), "the journal sits beside the tags folder");
+        journal
+            .delete_items(&[tree.0.join("source")], |_| Ok(()))
+            .unwrap();
+        assert!(
+            !tree.0.join("source").exists(),
+            "deleted before the failure"
+        );
+        assert!(
+            tree.0.join(JOURNAL_FOLDER).is_dir(),
+            "the journal sits beside the tags folder"
+        );
         let message = journal.rollback("the refresh failed".into());
         assert!(message.contains("rolled back"), "{message}");
         assert_eq!(fs::read(tree.0.join("source/a")).unwrap(), b"a");
         assert_eq!(fs::read(tree.0.join("source/sub/b")).unwrap(), b"b");
-        assert_eq!(fs::metadata(tree.0.join("source/sub/b")).unwrap().modified().unwrap(), modified);
+        assert_eq!(
+            fs::metadata(tree.0.join("source/sub/b"))
+                .unwrap()
+                .modified()
+                .unwrap(),
+            modified
+        );
         assert!(tree.0.join("source/empty").is_dir());
-        assert!(!tree.0.join(JOURNAL_FOLDER).exists(), "an emptied journal folder is removed");
+        assert!(
+            !tree.0.join(JOURNAL_FOLDER).exists(),
+            "an emptied journal folder is removed"
+        );
     }
 
     /// A file locked partway through a delete stops it there: the files
@@ -725,7 +829,11 @@ mod tests {
         }
         // Shared for reading only (FILE_SHARE_READ): it can be checked and
         // preserved, but not renamed or deleted while open.
-        let lock = fs::OpenOptions::new().read(true).share_mode(1).open(tree.0.join("source/b")).unwrap();
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(tree.0.join("source/b"))
+            .unwrap();
         let mut journal = Transaction::for_kit(&tree.0.join("tags")).unwrap();
         let mut preserved = Vec::new();
         let result = journal.delete_items(&[tree.0.join("source")], |path| {
@@ -733,11 +841,18 @@ mod tests {
             Ok(())
         });
         assert!(result.is_err(), "the locked file stops the delete");
-        assert!(!tree.0.join("source/a").exists(), "`a` went before `b` failed");
+        assert!(
+            !tree.0.join("source/a").exists(),
+            "`a` went before `b` failed"
+        );
         drop(lock);
         journal.rollback("locked".into());
         for name in ["a", "b", "c"] {
-            assert_eq!(fs::read(tree.0.join(format!("source/{name}"))).unwrap(), name.as_bytes(), "{name}");
+            assert_eq!(
+                fs::read(tree.0.join(format!("source/{name}"))).unwrap(),
+                name.as_bytes(),
+                "{name}"
+            );
         }
     }
 

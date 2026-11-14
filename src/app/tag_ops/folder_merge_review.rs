@@ -72,7 +72,12 @@ pub(in crate::app) struct MergeReview {
     pub apply_remaining: bool,
 }
 pub(in crate::app) enum ReviewKind {
-    BatchSummary { sources: Vec<PathBuf>, destination: PathBuf, files: usize, conflicts: usize },
+    BatchSummary {
+        sources: Vec<PathBuf>,
+        destination: PathBuf,
+        files: usize,
+        conflicts: usize,
+    },
     /// A bulk delete: the selected items as icon rows, how much they hold,
     /// and every tag outside the selection that will lose a reference.
     Delete {
@@ -217,12 +222,19 @@ fn draw_items_review(
     phase: Option<&str>,
     notice: Option<&str>,
 ) -> Option<bool> {
-    use crate::app::browser::bulk_rename::{ITEM_ROW_HEIGHT, draw_folder_band, draw_item_row, draw_items_box, draw_references_box, missing_references_title, references_box_height, references_to_fix_title, rename_box};
+    use crate::app::browser::bulk_rename::{
+        ITEM_ROW_HEIGHT, draw_folder_band, draw_item_row, draw_items_box, draw_references_box,
+        missing_references_title, references_box_height, references_to_fix_title, rename_box,
+    };
     let moving = matches!(action, ItemsAction::Move { .. });
     // A single moved item is a row above the references, as in the single
     // Delete windows, rather than a box of its own.
     let single = single_item_review(action, selected);
-    let (title, icon) = if moving { (MOVE_REVIEW_TITLE, ButtonIcon::Move) } else { (DELETE_REVIEW_TITLE, ButtonIcon::Garbage) };
+    let (title, icon) = if moving {
+        (MOVE_REVIEW_TITLE, ButtonIcon::Move)
+    } else {
+        (DELETE_REVIEW_TITLE, ButtonIcon::Garbage)
+    };
     crate::app::search::draw_icon_window_header_without_close(ui, title, icon);
     if let ItemsAction::Move { destination } = action {
         draw_folder_band(ui, destination);
@@ -238,8 +250,15 @@ fn draw_items_review(
             ui.add_space(10.0);
         }
         if moving {
-            ui.label(if single.is_some() { "Moves this item into the folder." } else { "Moves the selected items into this folder." });
-            ui.label(RichText::new("Tags that reference them are updated to their new paths.").color(subtle_dark()));
+            ui.label(if single.is_some() {
+                "Moves this item into the folder."
+            } else {
+                "Moves the selected items into this folder."
+            });
+            ui.label(
+                RichText::new("Tags that reference them are updated to their new paths.")
+                    .color(subtle_dark()),
+            );
             // Always one line, so the window keeps its size when the check
             // fills in.
             match check.as_ref().map(|check| check.conflicts) {
@@ -255,10 +274,15 @@ fn draw_items_review(
             };
         } else {
             let contents = match &check {
-                Some(ItemsCheck { counts: (tags, files, folders), .. }) => delete_contents(*tags, *files, *folders),
+                Some(ItemsCheck {
+                    counts: (tags, files, folders),
+                    ..
+                }) => delete_contents(*tags, *files, *folders),
                 None => "the selected items".to_owned(),
             };
-            ui.label(format!("This deletes {contents}, including subfolders and empty folders."));
+            ui.label(format!(
+                "This deletes {contents}, including subfolders and empty folders."
+            ));
             // Muted, like the single Delete windows' note about recovery.
             ui.label(
                 RichText::new("Everything is moved together into Baboon's deleted-tags folder so it can be recovered by hand.")
@@ -275,16 +299,37 @@ fn draw_items_review(
         let draw_references = |ui: &mut Ui| match &check {
             Some(check) => {
                 let count = check.scripts.total(check.referrers.len());
-                let title = if moving { references_to_fix_title(count) } else { missing_references_title(count) };
-                draw_references_box(ui, &title, check.referrers, check.scripts, &notes, game, height);
+                let title = if moving {
+                    references_to_fix_title(count)
+                } else {
+                    missing_references_title(count)
+                };
+                draw_references_box(
+                    ui,
+                    &title,
+                    check.referrers,
+                    check.scripts,
+                    &notes,
+                    game,
+                    height,
+                );
             }
             None => rename_box(ui, height, |ui| {
                 ui.add_space(4.0);
-                ui.label(RichText::new(if moving { "Checking References to Fix…" } else { "Checking for Missing References…" }).strong());
+                ui.label(
+                    RichText::new(if moving {
+                        "Checking References to Fix…"
+                    } else {
+                        "Checking for Missing References…"
+                    })
+                    .strong(),
+                );
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     ui.spinner();
-                    ui.label(RichText::new(phase.unwrap_or("Checking references")).color(subtle_dark()));
+                    ui.label(
+                        RichText::new(phase.unwrap_or("Checking references")).color(subtle_dark()),
+                    );
                 });
             }),
         };
@@ -301,14 +346,22 @@ fn draw_items_review(
         };
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = gap;
-            ui.allocate_ui_with_layout(Vec2::new(column_width, height), egui::Layout::top_down(egui::Align::Min), |ui| {
-                ui.set_width(column_width);
-                draw_items_box(ui, "bulk_review_items", &title, selected, &[], game, height);
-            });
-            ui.allocate_ui_with_layout(Vec2::new(column_width, height), egui::Layout::top_down(egui::Align::Min), |ui| {
-                ui.set_width(column_width);
-                draw_references(ui);
-            });
+            ui.allocate_ui_with_layout(
+                Vec2::new(column_width, height),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    ui.set_width(column_width);
+                    draw_items_box(ui, "bulk_review_items", &title, selected, &[], game, height);
+                },
+            );
+            ui.allocate_ui_with_layout(
+                Vec2::new(column_width, height),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    ui.set_width(column_width);
+                    draw_references(ui);
+                },
+            );
         });
     });
     ui.add_space(12.0);
@@ -321,9 +374,18 @@ fn draw_items_review(
             let go = if moving {
                 icon_text_button(ui, ButtonIcon::Move, "Move", check.is_some())
             } else {
-                accent_icon_text_button(ui, ButtonAccent::Destructive, ButtonIcon::Garbage, "Delete", check.is_some())
+                accent_icon_text_button(
+                    ui,
+                    ButtonAccent::Destructive,
+                    ButtonIcon::Garbage,
+                    "Delete",
+                    check.is_some(),
+                )
             };
-            if go.on_disabled_hover_text("Available once the reference check finishes.").clicked() {
+            if go
+                .on_disabled_hover_text("Available once the reference check finishes.")
+                .clicked()
+            {
                 choice = Some(true);
             }
         });
@@ -344,8 +406,19 @@ fn single_item_review<'a>(
 
 /// A one-item Move review is as narrow as the single Delete windows; the
 /// others are wide enough for their two boxes side by side.
-fn items_review_width(ctx: &egui::Context, action: &ItemsAction, selected: &[(String, crate::app::browser::bulk_rename::RenameIcon)]) -> f32 {
-    window_width(ctx, if single_item_review(action, selected).is_some() { 520.0 } else { 880.0 })
+fn items_review_width(
+    ctx: &egui::Context,
+    action: &ItemsAction,
+    selected: &[(String, crate::app::browser::bulk_rename::RenameIcon)],
+) -> f32 {
+    window_width(
+        ctx,
+        if single_item_review(action, selected).is_some() {
+            520.0
+        } else {
+            880.0
+        },
+    )
 }
 
 fn date_label(seconds: u64) -> String {
@@ -368,7 +441,16 @@ pub(in crate::app) fn draw(ctx: &egui::Context, state: &mut MergeUi, phase: Opti
             .frame(egui::Frame::window(&ctx.global_style()))
             .show(ctx, |ui| {
                 ui.set_width(items_review_width(ctx, &preview.action, &preview.selected));
-                cancel = draw_items_review(ui, ctx, &preview.action, &preview.selected, None, preview.game, phase, None) == Some(false);
+                cancel = draw_items_review(
+                    ui,
+                    ctx,
+                    &preview.action,
+                    &preview.selected,
+                    None,
+                    preview.game,
+                    phase,
+                    None,
+                ) == Some(false);
             });
         if cancel || modal.should_close() {
             state.control.cancel();
@@ -523,7 +605,8 @@ mod tests {
         let mut state = MergeUi {
             items_preview: None,
             control: Arc::new(MergeControl::default()),
-            review: Some(MergeReview { notice: None,
+            review: Some(MergeReview {
+                notice: None,
                 kind: ReviewKind::Conflict {
                     conflict: Conflict {
                         incoming_info: crate::core::folder_merge::fingerprint(&incoming).unwrap(),

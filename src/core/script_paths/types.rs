@@ -35,10 +35,21 @@ pub(super) enum Expected {
 
 /// A script value type, as the docs spell it, sorted into tag kinds.
 pub(super) fn classify(value_type: &str) -> Expected {
-    let normalized = value_type.trim().trim_end_matches("(s)").trim().to_ascii_lowercase().replace(' ', "_");
-    let tag = |kind| Expected::Tag { kind, name: value_type.trim().to_owned() };
+    let normalized = value_type
+        .trim()
+        .trim_end_matches("(s)")
+        .trim()
+        .to_ascii_lowercase()
+        .replace(' ', "_");
+    let tag = |kind| Expected::Tag {
+        kind,
+        name: value_type.trim().to_owned(),
+    };
     match normalized.as_str() {
-        "animation_graph" => tag(TagKind::Groups(&["model_animation_graph", "model_animations"])),
+        "animation_graph" => tag(TagKind::Groups(&[
+            "model_animation_graph",
+            "model_animations",
+        ])),
         "object_definition" => tag(TagKind::Objects),
         "render_model" => tag(TagKind::Groups(&["render_model"])),
         "sound" => tag(TagKind::Groups(&["sound"])),
@@ -59,9 +70,8 @@ pub(super) fn classify(value_type: &str) -> Expected {
         "looping_sound_budget_reference" => tag(TagKind::Groups(&["sound_looping"])),
         "animation_budget_reference" => tag(TagKind::Groups(&["model_animation_graph"])),
         "any_tag" | "any_tag_not_resolving" => tag(TagKind::Any),
-        "passthrough" | "expression" | "then" | "else" | "result1" | "result2" | "value" | "condition" | "" => {
-            Expected::Unknown
-        }
+        "passthrough" | "expression" | "then" | "else" | "result1" | "result2" | "value"
+        | "condition" | "" => Expected::Unknown,
         _ => Expected::NotTag,
     }
 }
@@ -78,11 +88,15 @@ impl Signatures {
     /// Empty (everything [`Expected::Unknown`]) if the docs are missing.
     pub fn for_game(game: GameId) -> Arc<Signatures> {
         static CACHE: OnceLock<Mutex<HashMap<GameId, Arc<Signatures>>>> = OnceLock::new();
-        let mut cache = CACHE.get_or_init(Default::default).lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut cache = CACHE
+            .get_or_init(Default::default)
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         cache
             .entry(game)
             .or_insert_with(|| {
-                let path = crate::core::bundled::locate_help_docs_root().join(crate::core::bundled::SCRIPT_DOCS_FILE);
+                let path = crate::core::bundled::locate_help_docs_root()
+                    .join(crate::core::bundled::SCRIPT_DOCS_FILE);
                 Arc::new(Self::load(&path, game.as_str()).unwrap_or_default())
             })
             .clone()
@@ -91,9 +105,13 @@ impl Signatures {
     fn load(path: &Path, game: &str) -> Option<Signatures> {
         // Docs with another schema are read as none: every argument Unknown.
         let connection = crate::core::bundled::open_script_docs(path).ok()?;
-        let mut statement = connection.prepare("SELECT name, signature FROM functions WHERE game_id = ?1").ok()?;
+        let mut statement = connection
+            .prepare("SELECT name, signature FROM functions WHERE game_id = ?1")
+            .ok()?;
         let rows = statement
-            .query_map([game], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+            .query_map([game], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
             .ok()?;
         let mut signatures = Signatures::default();
         for (name, signature) in rows.flatten() {
@@ -107,13 +125,18 @@ impl Signatures {
         let mut types = Vec::new();
         let mut rest = signature;
         while let Some(open) = rest.find('<') {
-            let Some(close) = rest[open..].find('>') else { break };
+            let Some(close) = rest[open..].find('>') else {
+                break;
+            };
             types.push(rest[open + 1..open + close].to_owned());
             rest = &rest[open + close + 1..];
         }
         // The first is the return type.
         let arguments = types.into_iter().skip(1).collect();
-        self.functions.entry(name.to_ascii_lowercase()).or_default().push(arguments);
+        self.functions
+            .entry(name.to_ascii_lowercase())
+            .or_default()
+            .push(arguments);
     }
 
     /// What argument `index` of `function` expects, in a call passing
@@ -128,10 +151,17 @@ impl Signatures {
             _ => count == arguments.len(),
         };
         let fitting: Vec<_> = match count {
-            Some(count) => overloads.iter().filter(|arguments| takes(arguments, count)).collect(),
+            Some(count) => overloads
+                .iter()
+                .filter(|arguments| takes(arguments, count))
+                .collect(),
             None => Vec::new(),
         };
-        let overloads: Vec<_> = if fitting.is_empty() { overloads.iter().collect() } else { fitting };
+        let overloads: Vec<_> = if fitting.is_empty() {
+            overloads.iter().collect()
+        } else {
+            fitting
+        };
         let mut found: Option<Expected> = None;
         for arguments in overloads {
             let value_type = match arguments.get(index) {
@@ -164,14 +194,23 @@ fn same_kind(a: &Expected, b: &Expected) -> bool {
 /// reaches it.
 pub(super) fn object_groups(game: GameId) -> Arc<HashSet<String>> {
     static CACHE: OnceLock<Mutex<HashMap<GameId, Arc<HashSet<String>>>>> = OnceLock::new();
-    let mut cache = CACHE.get_or_init(Default::default).lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut cache = CACHE
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     cache
         .entry(game)
         .or_insert_with(|| {
             let definitions = GroupDefinitions::for_game(game);
             let mut objects: HashSet<String> = definitions
                 .groups()
-                .filter(|group| definitions.ancestors(group).0.iter().any(|parent| parent.tag == "obje"))
+                .filter(|group| {
+                    definitions
+                        .ancestors(group)
+                        .0
+                        .iter()
+                        .any(|parent| parent.tag == "obje")
+                })
                 .map(|group| group.name.clone())
                 .collect();
             objects.insert("object".to_owned());
@@ -191,11 +230,26 @@ mod tests {
             Expected::Tag { kind, .. } => Some(kind),
             _ => None,
         };
-        assert_eq!(kind("custom_animation", 1), Some(TagKind::Groups(&["model_animation_graph", "model_animations"])));
+        assert_eq!(
+            kind("custom_animation", 1),
+            Some(TagKind::Groups(&[
+                "model_animation_graph",
+                "model_animations"
+            ]))
+        );
         assert_eq!(kind("object_type_predict", 0), Some(TagKind::Objects));
-        assert_eq!(kind("sound_impulse_start", 0), Some(TagKind::Groups(&["sound"])));
-        assert_eq!(signatures.expected("custom_animation", 2, None), Expected::NotTag);
-        assert_eq!(signatures.expected("no_such_function", 0, None), Expected::Unknown);
+        assert_eq!(
+            kind("sound_impulse_start", 0),
+            Some(TagKind::Groups(&["sound"]))
+        );
+        assert_eq!(
+            signatures.expected("custom_animation", 2, None),
+            Expected::NotTag
+        );
+        assert_eq!(
+            signatures.expected("no_such_function", 0, None),
+            Expected::Unknown
+        );
     }
 
     #[test]
@@ -205,7 +259,13 @@ mod tests {
         signatures.add("pick", "(<void> pick <effect>)");
         signatures.add("many", "(<void> many <short> <object_definition(s)>)");
         assert_eq!(signatures.expected("pick", 0, None), Expected::Unknown);
-        assert!(matches!(signatures.expected("many", 4, None), Expected::Tag { kind: TagKind::Objects, .. }));
+        assert!(matches!(
+            signatures.expected("many", 4, None),
+            Expected::Tag {
+                kind: TagKind::Objects,
+                ..
+            }
+        ));
     }
 
     /// Overloads that disagree are told apart by how many arguments the call
@@ -224,16 +284,24 @@ mod tests {
         assert_eq!(kind(0, Some(2)), Some(TagKind::Groups(&["effect"])));
         assert_eq!(kind(0, Some(5)), None, "no overload takes five");
         assert_eq!(kind(0, None), None);
-        assert!(matches!(signatures.expected("many", 3, Some(4)), Expected::Tag { kind: TagKind::Objects, .. }));
+        assert!(matches!(
+            signatures.expected("many", 3, Some(4)),
+            Expected::Tag {
+                kind: TagKind::Objects,
+                ..
+            }
+        ));
 
         // Reach's cs_custom_animation takes its graph first, or third after
         // an AI and a flag.
         let reach = Signatures::for_game(GameId::HaloReach);
-        let graph = |index, count| {
-            matches!(reach.expected("cs_custom_animation", index, Some(count)), Expected::Tag { kind: TagKind::Groups(groups), .. } if groups.contains(&"model_animation_graph"))
-        };
+        let graph = |index, count| matches!(reach.expected("cs_custom_animation", index, Some(count)), Expected::Tag { kind: TagKind::Groups(groups), .. } if groups.contains(&"model_animation_graph"));
         assert!(graph(0, 3) && graph(0, 4) && graph(2, 5) && graph(2, 6));
-        assert_eq!(reach.expected("cs_custom_animation", 0, None), Expected::Unknown, "uncounted, the overloads disagree");
+        assert_eq!(
+            reach.expected("cs_custom_animation", 0, None),
+            Expected::Unknown,
+            "uncounted, the overloads disagree"
+        );
     }
 
     #[test]

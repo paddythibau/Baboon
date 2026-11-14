@@ -619,8 +619,10 @@ fn recovery_folder_validation(ctx: &egui::Context, draft: &CustomEditingKitDraft
         })
 }
 
+/// The Deleted Tags Folder field, its buttons and notes, and its error. The
+/// dialog's Save asks the same check itself.
 fn draw_recovery_folder_input(ui: &mut Ui, draft: &mut CustomEditingKitDraft,
-    profiles: &[CustomEditingKitProfile], loaded_tags_roots: &[PathBuf]) -> Option<String> {
+    profiles: &[CustomEditingKitProfile], loaded_tags_roots: &[PathBuf]) {
     use crate::app::kits::recovery::{draft_recovery_folder, validate_draft_recovery, profile_recovery_folder, abbreviated_path_display};
     editing_kit_field_label(ui, "Deleted Tags Folder");
     let context = ui.ctx().clone();
@@ -685,9 +687,9 @@ fn draw_recovery_folder_input(ui: &mut Ui, draft: &mut CustomEditingKitDraft,
         ui.label(RichText::new("Another editing kit uses this folder. Their recovery batches will be mixed together.")
             .small().color(Color32::from_rgb(220, 170, 70)));
     }
-    let error = probe(draft);
-    if let Some(error) = &error { ui.label(RichText::new(error).color(material_delete_text())); }
-    error
+    if let Some(error) = probe(draft) {
+        ui.label(RichText::new(error).color(material_delete_text()));
+    }
 }
 
 #[derive(Clone, Copy)]

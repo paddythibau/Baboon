@@ -221,7 +221,12 @@ impl RenameReferences {
         }
         let display: HashMap<_, _> = entries
             .iter()
-            .map(|entry| (entry.key.as_str(), (entry.display_path.as_str(), entry.group_tag)))
+            .map(|entry| {
+                (
+                    entry.key.as_str(),
+                    (entry.display_path.as_str(), entry.group_tag),
+                )
+            })
             .collect();
         let mut complete =
             source.complete_scan && entries.iter().all(|entry| index.contains_tag(&entry.key));
@@ -259,7 +264,14 @@ impl RenameReferences {
     /// Like the list, the note covers every selected folder: the list shows
     /// what the rename could reach, and applying renames only the items whose
     /// names change, checking their references again first.
-    fn draw(ui: &mut Ui, references: Option<&Self>, scripts: &ScriptRows, refreshing: bool, game: Option<GameId>, height: f32) {
+    fn draw(
+        ui: &mut Ui,
+        references: Option<&Self>,
+        scripts: &ScriptRows,
+        refreshing: bool,
+        game: Option<GameId>,
+        height: f32,
+    ) {
         let mut notes = Vec::new();
         let moved: usize = references.map_or(0, |references| references.inside.iter().sum());
         if moved > 0 {
@@ -272,7 +284,15 @@ impl RenameReferences {
             _ => {}
         }
         let paths = references.map_or(&[][..], |references| &references.paths[..]);
-        draw_references_box(ui, &references_to_fix_title(scripts.total(paths.len())), paths, scripts, &notes, game, height);
+        draw_references_box(
+            ui,
+            &references_to_fix_title(scripts.total(paths.len())),
+            paths,
+            scripts,
+            &notes,
+            game,
+            height,
+        );
     }
 }
 
@@ -324,30 +344,63 @@ pub(in crate::app) fn missing_references_title(count: usize) -> String {
 }
 
 /// One item as a row: its icon, then its path with the folder muted.
-pub(in crate::app) fn draw_item_row(ui: &mut Ui, icon: RenameIcon, game: Option<GameId>, path: &str, height: f32) {
-    let (row, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::hover());
+pub(in crate::app) fn draw_item_row(
+    ui: &mut Ui,
+    icon: RenameIcon,
+    game: Option<GameId>,
+    path: &str,
+    height: f32,
+) {
+    let (row, response) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::hover());
     paint_item_row(ui, row, Some(response), icon, game, path);
 }
 
 /// [`draw_item_row`] as a button: it highlights under the pointer, and
 /// `hint` follows the path in its tooltip. True when clicked.
-pub(in crate::app) fn draw_link_row(ui: &mut Ui, icon: RenameIcon, game: Option<GameId>, path: &str, hint: &str, height: f32) -> bool {
-    let (row, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::click());
+pub(in crate::app) fn draw_link_row(
+    ui: &mut Ui,
+    icon: RenameIcon,
+    game: Option<GameId>,
+    path: &str,
+    hint: &str,
+    height: f32,
+) -> bool {
+    let (row, response) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::click());
     if response.hovered() {
-        ui.painter().rect_filled(row, ui.visuals().widgets.hovered.corner_radius, ui.visuals().widgets.hovered.weak_bg_fill);
+        ui.painter().rect_filled(
+            row,
+            ui.visuals().widgets.hovered.corner_radius,
+            ui.visuals().widgets.hovered.weak_bg_fill,
+        );
     }
     let clicked = response.clicked();
-    response.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(format!("{path}\n{hint}"));
+    response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(format!("{path}\n{hint}"));
     paint_item_row(ui, row, None, icon, game, path);
     clicked
 }
 
 /// Paint a row's icon, path and divider. `response`, when given, gets the
 /// whole path as its tooltip if the path had to be shortened.
-fn paint_item_row(ui: &mut Ui, row: egui::Rect, response: Option<egui::Response>, icon: RenameIcon, game: Option<GameId>, path: &str) {
-    let icon_rect = egui::Rect::from_center_size(egui::pos2(row.left() + 18.0, row.center().y), Vec2::splat(ROW_ICON_SIZE));
+fn paint_item_row(
+    ui: &mut Ui,
+    row: egui::Rect,
+    response: Option<egui::Response>,
+    icon: RenameIcon,
+    game: Option<GameId>,
+    path: &str,
+) {
+    let icon_rect = egui::Rect::from_center_size(
+        egui::pos2(row.left() + 18.0, row.center().y),
+        Vec2::splat(ROW_ICON_SIZE),
+    );
     match icon {
-        RenameIcon::Folder => paint_button_icon_at(ui, ButtonIcon::FolderClosed, icon_rect, text_dark()),
+        RenameIcon::Folder => {
+            paint_button_icon_at(ui, ButtonIcon::FolderClosed, icon_rect, text_dark())
+        }
         RenameIcon::Tag(group) => paint_tag_icon_at(ui, group, game, icon_rect),
     }
     let text = egui::Rect::from_min_max(egui::pos2(icon_rect.right() + 10.0, row.top()), row.max);
@@ -356,7 +409,11 @@ fn paint_item_row(ui: &mut Ui, row: egui::Rect, response: Option<egui::Response>
     {
         response.on_hover_text(path);
     }
-    ui.painter().hline(row.x_range(), row.bottom() - 0.5, Stroke::new(1.0, foundation_block_edge()));
+    ui.painter().hline(
+        row.x_range(),
+        row.bottom() - 0.5,
+        Stroke::new(1.0, foundation_block_edge()),
+    );
 }
 
 /// The boxed list of referring tags shared by the Rename and Delete windows:
@@ -374,12 +431,25 @@ pub(in crate::app) fn draw_references_box(
     height: f32,
 ) {
     let notes: Vec<String> = notes.iter().chain(&scripts.notes).cloned().collect();
-    boxed_rows(ui, "rename_references", title, &notes, scripts.checking, rows.len() + scripts.rows.len(), height, |ui, row| {
-        match rows.get(row) {
-            Some((path, group)) => draw_item_row(ui, RenameIcon::Tag(Some(*group)), game, path, REFERENCE_ROW_HEIGHT),
+    boxed_rows(
+        ui,
+        "rename_references",
+        title,
+        &notes,
+        scripts.checking,
+        rows.len() + scripts.rows.len(),
+        height,
+        |ui, row| match rows.get(row) {
+            Some((path, group)) => draw_item_row(
+                ui,
+                RenameIcon::Tag(Some(*group)),
+                game,
+                path,
+                REFERENCE_ROW_HEIGHT,
+            ),
             None => draw_script_row(ui, &scripts.rows[row - rows.len()], game),
-        }
-    });
+        },
+    );
 }
 
 /// The scripts a references box lists after its tags, and the notes about
@@ -434,14 +504,26 @@ impl ScriptRows {
         match script_support(game) {
             None => return Self::default(),
             Some(ScriptSupport::NotChecked) => {
-                return Self { rows: Vec::new(), notes: vec![NOT_CHECKED_NOTE.to_owned()], checking: false };
+                return Self {
+                    rows: Vec::new(),
+                    notes: vec![NOT_CHECKED_NOTE.to_owned()],
+                    checking: false,
+                };
             }
             Some(ScriptSupport::Checked) => {}
         }
         let Some(report) = report else {
-            return Self { rows: Vec::new(), notes: Vec::new(), checking: true };
+            return Self {
+                rows: Vec::new(),
+                notes: Vec::new(),
+                checking: true,
+            };
         };
-        let rows: Vec<_> = report.scripts.iter().map(|script| script_row(script, kind)).collect();
+        let rows: Vec<_> = report
+            .scripts
+            .iter()
+            .map(|script| script_row(script, kind))
+            .collect();
         let notes = if rows.is_empty() {
             Vec::new()
         } else if kind == ChangeKind::Delete {
@@ -449,12 +531,20 @@ impl ScriptRows {
         } else {
             vec!["Scripts are updated in their .hsc file in data\\ and in the copy saved in their scenario.".to_owned()]
         };
-        Self { rows, notes, checking: false }
+        Self {
+            rows,
+            notes,
+            checking: false,
+        }
     }
 }
 
 fn plural_paths(count: usize) -> String {
-    if count == 1 { "1 path".to_owned() } else { format!("{count} paths") }
+    if count == 1 {
+        "1 path".to_owned()
+    } else {
+        format!("{count} paths")
+    }
 }
 
 fn script_row(script: &ScriptImpact, kind: ChangeKind) -> ScriptRow {
@@ -472,17 +562,34 @@ fn script_row(script: &ScriptImpact, kind: ChangeKind) -> ScriptRow {
         let what = match (hit.outcome, &hit.new) {
             (Outcome::Fixed, Some(new)) => format!("{} → {new}", hit.old),
             (Outcome::Fixed, None) => format!("{} (updated to the new path)", hit.old),
-            (Outcome::CantFix, _) => format!("{} — can't fix: it could mean more than one tag", hit.old),
+            (Outcome::CantFix, _) => {
+                format!("{} — can't fix: it could mean more than one tag", hit.old)
+            }
             (Outcome::Missing, _) => format!("{} — missing", hit.old),
-            (Outcome::MayBreak, _) => format!("{} — may be missing: it could mean more than one tag", hit.old),
+            (Outcome::MayBreak, _) => format!(
+                "{} — may be missing: it could mean more than one tag",
+                hit.old
+            ),
         };
-        let expected = hit.expected.as_deref().map(|expected| format!(" ({expected})")).unwrap_or_default();
+        let expected = hit
+            .expected
+            .as_deref()
+            .map(|expected| format!(" ({expected})"))
+            .unwrap_or_default();
         tooltip.push(format!("Line {}: {what}{expected}", hit.line));
     }
     if script.hits.len() > SCRIPT_TOOLTIP_LINES {
-        tooltip.push(format!("+{} more", script.hits.len() - SCRIPT_TOOLTIP_LINES));
+        tooltip.push(format!(
+            "+{} more",
+            script.hits.len() - SCRIPT_TOOLTIP_LINES
+        ));
     }
-    ScriptRow { path: script.path(), count: plural_paths(script.count(main)), problem, tooltip: tooltip.join("\n") }
+    ScriptRow {
+        path: script.path(),
+        count: plural_paths(script.count(main)),
+        problem,
+        tooltip: tooltip.join("\n"),
+    }
 }
 
 /// The script source tag group, for the script rows' icon.
@@ -491,53 +598,127 @@ const SCRIPT_GROUP: u32 = u32::from_be_bytes(*b"hsc*");
 /// A script as a row: the script icon, its path with the folder muted, and
 /// how many of its paths change at the right. Hover lists the lines.
 fn draw_script_row(ui: &mut Ui, script: &ScriptRow, game: Option<GameId>) {
-    let (row, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), REFERENCE_ROW_HEIGHT), Sense::hover());
-    let icon_rect = egui::Rect::from_center_size(egui::pos2(row.left() + 18.0, row.center().y), Vec2::splat(ROW_ICON_SIZE));
+    let (row, response) = ui.allocate_exact_size(
+        Vec2::new(ui.available_width(), REFERENCE_ROW_HEIGHT),
+        Sense::hover(),
+    );
+    let icon_rect = egui::Rect::from_center_size(
+        egui::pos2(row.left() + 18.0, row.center().y),
+        Vec2::splat(ROW_ICON_SIZE),
+    );
     paint_tag_icon_at(ui, Some(SCRIPT_GROUP), game, icon_rect);
     let font = egui::TextStyle::Body.resolve(ui.style());
     let mut right = row.right() - 8.0;
     if let Some(problem) = &script.problem {
-        let galley = ui.painter().layout_no_wrap(problem.clone(), font.clone(), ui.visuals().error_fg_color);
+        let galley =
+            ui.painter()
+                .layout_no_wrap(problem.clone(), font.clone(), ui.visuals().error_fg_color);
         right -= galley.size().x;
-        ui.painter().galley(egui::pos2(right, row.center().y - galley.size().y * 0.5), galley, ui.visuals().error_fg_color);
+        ui.painter().galley(
+            egui::pos2(right, row.center().y - galley.size().y * 0.5),
+            galley,
+            ui.visuals().error_fg_color,
+        );
         right -= 6.0;
     }
-    let galley = ui.painter().layout_no_wrap(script.count.clone(), font, subtle_dark());
+    let galley = ui
+        .painter()
+        .layout_no_wrap(script.count.clone(), font, subtle_dark());
     right -= galley.size().x;
-    ui.painter().galley(egui::pos2(right, row.center().y - galley.size().y * 0.5), galley, subtle_dark());
-    let text = egui::Rect::from_min_max(egui::pos2(icon_rect.right() + 10.0, row.top()), egui::pos2(right - 12.0, row.bottom()));
+    ui.painter().galley(
+        egui::pos2(right, row.center().y - galley.size().y * 0.5),
+        galley,
+        subtle_dark(),
+    );
+    let text = egui::Rect::from_min_max(
+        egui::pos2(icon_rect.right() + 10.0, row.top()),
+        egui::pos2(right - 12.0, row.bottom()),
+    );
     crate::app::compare::tag_compare::paint_path_label(ui, &script.path, text);
     response.on_hover_text(&script.tooltip);
-    ui.painter().hline(row.x_range(), row.bottom() - 0.5, Stroke::new(1.0, foundation_block_edge()));
+    ui.painter().hline(
+        row.x_range(),
+        row.bottom() - 0.5,
+        Stroke::new(1.0, foundation_block_edge()),
+    );
 }
 
 /// The same box for a mix of folders and files, such as the items a bulk
 /// delete removes. `id` keeps its scroll position apart from other boxes.
-pub(in crate::app) fn draw_items_box(ui: &mut Ui, id: &str, title: &str, rows: &[(String, RenameIcon)], notes: &[String], game: Option<GameId>, height: f32) {
-    boxed_rows(ui, id, title, notes, false, rows.len(), height, |ui, row| {
-        let (path, icon) = &rows[row];
-        draw_item_row(ui, *icon, game, path, REFERENCE_ROW_HEIGHT);
-    });
+pub(in crate::app) fn draw_items_box(
+    ui: &mut Ui,
+    id: &str,
+    title: &str,
+    rows: &[(String, RenameIcon)],
+    notes: &[String],
+    game: Option<GameId>,
+    height: f32,
+) {
+    boxed_rows(
+        ui,
+        id,
+        title,
+        notes,
+        false,
+        rows.len(),
+        height,
+        |ui, row| {
+            let (path, icon) = &rows[row];
+            draw_item_row(ui, *icon, game, path, REFERENCE_ROW_HEIGHT);
+        },
+    );
 }
 
 /// The same box with each tag as a [`draw_link_row`] button. The index of
 /// the row clicked, if any.
 #[allow(clippy::too_many_arguments)]
 pub(in crate::app) fn draw_links_box(
-    ui: &mut Ui, id: &str, title: &str, notes: &[String], rows: &[(String, u32)], hint: &str, game: Option<GameId>, height: f32,
+    ui: &mut Ui,
+    id: &str,
+    title: &str,
+    notes: &[String],
+    rows: &[(String, u32)],
+    hint: &str,
+    game: Option<GameId>,
+    height: f32,
 ) -> Option<usize> {
     let mut clicked = None;
-    boxed_rows(ui, id, title, notes, false, rows.len(), height, |ui, row| {
-        let (path, group) = &rows[row];
-        if draw_link_row(ui, RenameIcon::Tag(Some(*group)), game, path, hint, REFERENCE_ROW_HEIGHT) {
-            clicked = Some(row);
-        }
-    });
+    boxed_rows(
+        ui,
+        id,
+        title,
+        notes,
+        false,
+        rows.len(),
+        height,
+        |ui, row| {
+            let (path, group) = &rows[row];
+            if draw_link_row(
+                ui,
+                RenameIcon::Tag(Some(*group)),
+                game,
+                path,
+                hint,
+                REFERENCE_ROW_HEIGHT,
+            ) {
+                clicked = Some(row);
+            }
+        },
+    );
     clicked
 }
 
 #[allow(clippy::too_many_arguments)]
-fn boxed_rows(ui: &mut Ui, id: &str, title: &str, notes: &[String], checking: bool, rows: usize, height: f32, mut draw: impl FnMut(&mut Ui, usize)) {
+fn boxed_rows(
+    ui: &mut Ui,
+    id: &str,
+    title: &str,
+    notes: &[String],
+    checking: bool,
+    rows: usize,
+    height: f32,
+    mut draw: impl FnMut(&mut Ui, usize),
+) {
     rename_box(ui, height, |ui| {
         ui.add_space(4.0);
         ui.label(RichText::new(title).strong());
@@ -547,11 +728,17 @@ fn boxed_rows(ui: &mut Ui, id: &str, title: &str, notes: &[String], checking: bo
         if checking {
             ui.horizontal(|ui| {
                 ui.add(egui::Spinner::new().size(12.0));
-                ui.label(RichText::new(ScriptRows::CHECKING).italics().color(subtle_dark()));
+                ui.label(
+                    RichText::new(ScriptRows::CHECKING)
+                        .italics()
+                        .color(subtle_dark()),
+                );
             });
         }
         ui.add_space(4.0);
-        if rows == 0 { return }
+        if rows == 0 {
+            return;
+        }
         // `show_rows` sizes its content from the spacing in force here, so
         // zero it first or a list that fits still scrolls.
         ui.spacing_mut().item_spacing.y = 0.0;
@@ -571,30 +758,59 @@ fn boxed_rows(ui: &mut Ui, id: &str, title: &str, notes: &[String], checking: bo
 /// and which of them the rename changes.
 /// Styled like the Folder and String tables' footers, and joined to the box
 /// above it.
-fn draw_selection_footer(ui: &mut Ui, selected: usize, folders: usize, tags: usize, invalid: usize) {
-    let plural = |count: usize, one: &str, many: &str| format!("{count} {}", if count == 1 { one } else { many });
+fn draw_selection_footer(
+    ui: &mut Ui,
+    selected: usize,
+    folders: usize,
+    tags: usize,
+    invalid: usize,
+) {
+    let plural = |count: usize, one: &str, many: &str| {
+        format!("{count} {}", if count == 1 { one } else { many })
+    };
     let mut job = egui::text::LayoutJob::default();
     let style = ui.style().clone();
-    let mut add = |text: &str, color: Color32| RichText::new(text).color(color)
-        .append_to(&mut job, &style, egui::FontSelection::Default, egui::Align::Center);
-    add(&plural(selected, "item selected", "items selected"), subtle_dark());
+    let mut add = |text: &str, color: Color32| {
+        RichText::new(text).color(color).append_to(
+            &mut job,
+            &style,
+            egui::FontSelection::Default,
+            egui::Align::Center,
+        )
+    };
+    add(
+        &plural(selected, "item selected", "items selected"),
+        subtle_dark(),
+    );
     add(" · ", subtle_dark());
-    let parts: Vec<String> = [(folders, "folder", "folders"), (tags, "tag", "tags")].into_iter()
+    let parts: Vec<String> = [(folders, "folder", "folders"), (tags, "tag", "tags")]
+        .into_iter()
         .filter(|(count, ..)| *count > 0)
         .map(|(count, one, many)| plural(count, one, many))
         .collect();
     if parts.is_empty() {
         add("nothing to rename yet", subtle_dark());
     } else {
-        add(&format!("renaming {}", parts.join(" & ")), foundation_blue());
+        add(
+            &format!("renaming {}", parts.join(" & ")),
+            foundation_blue(),
+        );
     }
     if invalid > 0 {
         add(" · ", subtle_dark());
-        add(&plural(invalid, "invalid name", "invalid names"), ui.visuals().error_fg_color);
+        add(
+            &plural(invalid, "invalid name", "invalid names"),
+            ui.visuals().error_fg_color,
+        );
     }
     let background = ui.painter().add(egui::Shape::Noop);
     let footer = egui::Frame::NONE
-        .inner_margin(egui::Margin { left: 10, right: 10, top: 6, bottom: 6 })
+        .inner_margin(egui::Margin {
+            left: 10,
+            right: 10,
+            top: 6,
+            bottom: 6,
+        })
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
@@ -604,13 +820,21 @@ fn draw_selection_footer(ui: &mut Ui, selected: usize, folders: usize, tags: usi
         });
     // Its top edge lies on the box's bottom border, so the two share one line.
     let rect = footer.response.rect;
-    ui.painter().set(background, egui::epaint::RectShape::new(
-        rect.with_min_y(rect.min.y - 1.0),
-        egui::CornerRadius { nw: 0, ne: 0, sw: BOX_RADIUS, se: BOX_RADIUS },
-        foundation_block_bar(),
-        Stroke::new(1.0, foundation_block_edge()),
-        egui::StrokeKind::Inside,
-    ));
+    ui.painter().set(
+        background,
+        egui::epaint::RectShape::new(
+            rect.with_min_y(rect.min.y - 1.0),
+            egui::CornerRadius {
+                nw: 0,
+                ne: 0,
+                sw: BOX_RADIUS,
+                se: BOX_RADIUS,
+            },
+            foundation_block_bar(),
+            Stroke::new(1.0, foundation_block_edge()),
+            egui::StrokeKind::Inside,
+        ),
+    );
 }
 
 /// Rename and Delete windows inset their content this far from the window's
@@ -623,7 +847,12 @@ pub(in crate::app) fn padded_body<R>(ui: &mut Ui, contents: impl FnOnce(&mut Ui)
     let margin = ui.spacing().window_margin;
     let side = |window: i8| (CONTENT_SIDE_PADDING - window).max(0);
     egui::Frame::NONE
-        .inner_margin(egui::Margin { left: side(margin.left), right: side(margin.right), top: 0, bottom: 0 })
+        .inner_margin(egui::Margin {
+            left: side(margin.left),
+            right: side(margin.right),
+            top: 0,
+            bottom: 0,
+        })
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             contents(ui)
@@ -643,12 +872,22 @@ pub(in crate::app) enum RenameIcon {
 /// Rename column starts, from the table's left edge.
 pub(in crate::app) fn rename_table_header(ui: &mut Ui, width: f32) -> f32 {
     let column = (width / 2.0).floor();
-    let (header, _) = ui.allocate_exact_size(Vec2::new(width, TABLE_HEADER_HEIGHT + 6.0), Sense::hover());
+    let (header, _) =
+        ui.allocate_exact_size(Vec2::new(width, TABLE_HEADER_HEIGHT + 6.0), Sense::hover());
     for (offset, title) in [(0.0, "Original"), (column, "Rename")] {
-        ui.painter().text(header.left_center() + Vec2::new(offset + 8.0, 0.0), egui::Align2::LEFT_CENTER,
-            title, table_header_font(ui), subtle_dark());
+        ui.painter().text(
+            header.left_center() + Vec2::new(offset + 8.0, 0.0),
+            egui::Align2::LEFT_CENTER,
+            title,
+            table_header_font(ui),
+            subtle_dark(),
+        );
     }
-    ui.painter().vline(header.left() + column, header.y_range(), Stroke::new(1.0, foundation_block_edge()));
+    ui.painter().vline(
+        header.left() + column,
+        header.y_range(),
+        Stroke::new(1.0, foundation_block_edge()),
+    );
     paint_table_header_rule(ui, header);
     column
 }
@@ -657,32 +896,78 @@ pub(in crate::app) fn rename_table_header(ui: &mut Ui, width: f32) -> f32 {
 /// in `color` (blue when it changes, red for a problem).
 #[allow(clippy::too_many_arguments)]
 pub(in crate::app) fn rename_table_row(
-    ui: &mut Ui, width: f32, column: f32, icon: RenameIcon, game: Option<GameId>,
-    original: &str, original_hover: &str, renamed: &str, color: Color32,
+    ui: &mut Ui,
+    width: f32,
+    column: f32,
+    icon: RenameIcon,
+    game: Option<GameId>,
+    original: &str,
+    original_hover: &str,
+    renamed: &str,
+    color: Color32,
 ) {
     let (line, _) = ui.allocate_exact_size(Vec2::new(width, PREVIEW_ROW_HEIGHT), Sense::hover());
-    let icon_rect = egui::Rect::from_center_size(egui::pos2(line.left() + 8.0 + ROW_ICON_SIZE * 0.5, line.center().y), Vec2::splat(ROW_ICON_SIZE));
+    let icon_rect = egui::Rect::from_center_size(
+        egui::pos2(line.left() + 8.0 + ROW_ICON_SIZE * 0.5, line.center().y),
+        Vec2::splat(ROW_ICON_SIZE),
+    );
     match icon {
-        RenameIcon::Folder => paint_button_icon_at(ui, ButtonIcon::FolderClosed, icon_rect, text_dark()),
+        RenameIcon::Folder => {
+            paint_button_icon_at(ui, ButtonIcon::FolderClosed, icon_rect, text_dark())
+        }
         RenameIcon::Tag(group) => paint_tag_icon_at(ui, group, game, icon_rect),
     }
     let cells = [
-        (egui::Rect::from_min_max(egui::pos2(icon_rect.right() + 10.0, line.top()), egui::pos2(line.left() + column - 4.0, line.bottom())), original, text_dark(), original_hover),
-        (egui::Rect::from_min_max(egui::pos2(line.left() + column + 8.0, line.top()), egui::pos2(line.right() - 4.0, line.bottom())), renamed, color, renamed),
+        (
+            egui::Rect::from_min_max(
+                egui::pos2(icon_rect.right() + 10.0, line.top()),
+                egui::pos2(line.left() + column - 4.0, line.bottom()),
+            ),
+            original,
+            text_dark(),
+            original_hover,
+        ),
+        (
+            egui::Rect::from_min_max(
+                egui::pos2(line.left() + column + 8.0, line.top()),
+                egui::pos2(line.right() - 4.0, line.bottom()),
+            ),
+            renamed,
+            color,
+            renamed,
+        ),
     ];
     for (rect, text, color, hover) in cells {
-        let mut cell = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::left_to_right(egui::Align::Center)));
-        cell.add(egui::Label::new(RichText::new(text).color(color)).truncate()).on_hover_text(hover);
+        let mut cell = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(rect)
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+        cell.add(egui::Label::new(RichText::new(text).color(color)).truncate())
+            .on_hover_text(hover);
     }
-    ui.painter().hline(line.x_range(), line.bottom() - 0.5, Stroke::new(1.0, foundation_block_edge()));
+    ui.painter().hline(
+        line.x_range(),
+        line.bottom() - 0.5,
+        Stroke::new(1.0, foundation_block_edge()),
+    );
 }
 
 /// Display paths with their tag groups, read from each path's extension.
-pub(in crate::app) fn referrer_rows(paths: &[String], names: &crate::core::format::TagNameIndex) -> Vec<(String, u32)> {
-    paths.iter().map(|path| {
-        let group = path.rsplit_once('.').and_then(|(_, extension)| names.group_tag_for(extension)).unwrap_or(0);
-        (path.clone(), group)
-    }).collect()
+pub(in crate::app) fn referrer_rows(
+    paths: &[String],
+    names: &crate::core::format::TagNameIndex,
+) -> Vec<(String, u32)> {
+    paths
+        .iter()
+        .map(|path| {
+            let group = path
+                .rsplit_once('.')
+                .and_then(|(_, extension)| names.group_tag_for(extension))
+                .unwrap_or(0);
+            (path.clone(), group)
+        })
+        .collect()
 }
 
 /// The outlined, rounded containers that hold the references and the preview.
@@ -690,7 +975,12 @@ pub(in crate::app) fn rename_box(ui: &mut Ui, height: f32, contents: impl FnOnce
     framed_box(ui, height, egui::CornerRadius::same(BOX_RADIUS), contents);
 }
 
-fn framed_box(ui: &mut Ui, height: f32, radius: egui::CornerRadius, contents: impl FnOnce(&mut Ui)) {
+fn framed_box(
+    ui: &mut Ui,
+    height: f32,
+    radius: egui::CornerRadius,
+    contents: impl FnOnce(&mut Ui),
+) {
     egui::Frame::NONE
         .stroke(Stroke::new(1.0, foundation_block_edge()))
         .corner_radius(radius)
@@ -705,22 +995,34 @@ fn framed_box(ui: &mut Ui, height: f32, radius: egui::CornerRadius, contents: im
 /// `folder` on a band running edge to edge under a window's header, as Bulk
 /// Rename shows the folder it renames in and Move the folder it moves to.
 pub(in crate::app) fn draw_folder_band(ui: &mut Ui, folder: &str) {
-    draw_band(ui, folder, |ui, icon| paint_button_icon_at(ui, ButtonIcon::FolderOpen, icon, text_dark()));
+    draw_band(ui, folder, |ui, icon| {
+        paint_button_icon_at(ui, ButtonIcon::FolderOpen, icon, text_dark())
+    });
 }
 
 /// The same band for one tag, led by its group's icon, as the Content
 /// Explorer shows the tag it is exploring.
 pub(in crate::app) fn draw_tag_band(ui: &mut Ui, group: u32, game: Option<GameId>, path: &str) {
-    draw_band(ui, path, |ui, icon| paint_tag_icon_at(ui, Some(group), game, icon));
+    draw_band(ui, path, |ui, icon| {
+        paint_tag_icon_at(ui, Some(group), game, icon)
+    });
 }
 
 fn draw_band(ui: &mut Ui, path: &str, paint_icon: impl FnOnce(&Ui, egui::Rect)) {
     let (band, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 36.0), Sense::hover());
     let margin = ui.spacing().window_margin;
-    let fill = egui::Rect::from_min_max(egui::pos2(band.left() - f32::from(margin.left), band.top() - ui.spacing().item_spacing.y * 0.5),
-        egui::pos2(band.right() + f32::from(margin.right), band.bottom()));
+    let fill = egui::Rect::from_min_max(
+        egui::pos2(
+            band.left() - f32::from(margin.left),
+            band.top() - ui.spacing().item_spacing.y * 0.5,
+        ),
+        egui::pos2(band.right() + f32::from(margin.right), band.bottom()),
+    );
     ui.painter().rect_filled(fill, 0.0, foundation_group_bg());
-    let icon = egui::Rect::from_center_size(egui::pos2(band.left() + 2.0 + ROW_ICON_SIZE * 0.5, band.center().y), Vec2::splat(ROW_ICON_SIZE));
+    let icon = egui::Rect::from_center_size(
+        egui::pos2(band.left() + 2.0 + ROW_ICON_SIZE * 0.5, band.center().y),
+        Vec2::splat(ROW_ICON_SIZE),
+    );
     paint_icon(ui, icon);
     let text = egui::Rect::from_min_max(egui::pos2(icon.right() + 10.0, band.top()), band.max);
     crate::app::compare::tag_compare::paint_path_label(ui, path, text);
@@ -729,8 +1031,14 @@ fn draw_band(ui: &mut Ui, path: &str, paint_icon: impl FnOnce(&Ui, egui::Rect)) 
 /// `folder` as a display path under the tags root, or the root's own name.
 pub(in crate::app) fn folder_display(folder: &Path, root: &Path) -> String {
     match folder.strip_prefix(root) {
-        Ok(relative) if !relative.as_os_str().is_empty() => relative.to_string_lossy().replace('/', "\\"),
-        _ => root.file_name().unwrap_or(root.as_os_str()).to_string_lossy().into_owned(),
+        Ok(relative) if !relative.as_os_str().is_empty() => {
+            relative.to_string_lossy().replace('/', "\\")
+        }
+        _ => root
+            .file_name()
+            .unwrap_or(root.as_os_str())
+            .to_string_lossy()
+            .into_owned(),
     }
 }
 
@@ -741,7 +1049,11 @@ fn selection_folder(items: &[RenameItem], root: &Path) -> String {
     for parent in items.iter().filter_map(|item| item.path.parent()) {
         common = Some(match common {
             None => parent.to_path_buf(),
-            Some(common) => common.ancestors().find(|ancestor| parent.starts_with(ancestor)).unwrap_or(Path::new("")).to_path_buf(),
+            Some(common) => common
+                .ancestors()
+                .find(|ancestor| parent.starts_with(ancestor))
+                .unwrap_or(Path::new(""))
+                .to_path_buf(),
         });
     }
     folder_display(&common.unwrap_or_default(), root)
@@ -822,7 +1134,11 @@ impl Dialog for BulkRenameDialog {
             let revision = (kit.generation, kit.index_jobs.building_references);
             if let Some(signature) = RenameReferences::signature(source) {
                 if self.references_revision != Some(revision)
-                    || self.references.as_ref().map(|references| references.signature) != Some(signature)
+                    || self
+                        .references
+                        .as_ref()
+                        .map(|references| references.signature)
+                        != Some(signature)
                 {
                     self.references = RenameReferences::new(&self.items, source);
                     self.references_revision = Some(revision);
@@ -831,8 +1147,8 @@ impl Dialog for BulkRenameDialog {
                 // Keep the last known list while a new index is being built.
                 self.references_revision = None;
             }
-            refreshing_references = source.reverse_dependencies.is_none()
-                || kit.index_jobs.building_references;
+            refreshing_references =
+                source.reverse_dependencies.is_none() || kit.index_jobs.building_references;
         } else {
             self.references = None;
             self.references_revision = None;
@@ -841,107 +1157,275 @@ impl Dialog for BulkRenameDialog {
         // still being typed, so the rows say how many paths each script has.
         let selected: Vec<PathBuf> = self.items.iter().map(|item| item.path.clone()).collect();
         let scripts = if kit_index.is_some() {
-            crate::app::tag_ops::script_fixes::ScriptCheck::rows_for(&mut self.scripts, cx, self.request.stamp.kit, |entries| {
-                crate::core::script_paths::ScriptChanges::renaming(entries.iter().filter_map(|entry| match &entry.location {
-                    TagEntryLocation::LooseFile(path) if selected.iter().any(|item| path.starts_with(item)) => {
-                        Some((entry.display_path.as_str(), None))
-                    }
-                    _ => None,
-                }))
-            })
+            crate::app::tag_ops::script_fixes::ScriptCheck::rows_for(
+                &mut self.scripts,
+                cx,
+                self.request.stamp.kit,
+                |entries| {
+                    crate::core::script_paths::ScriptChanges::renaming(entries.iter().filter_map(
+                        |entry| match &entry.location {
+                            TagEntryLocation::LooseFile(path)
+                                if selected.iter().any(|item| path.starts_with(item)) =>
+                            {
+                                Some((entry.display_path.as_str(), None))
+                            }
+                            _ => None,
+                        },
+                    ))
+                },
+            )
         } else {
             ScriptRows::default()
         };
-        let dirty = kit_index.is_some_and(|index| cx.model.kits[index]
-            .parsed_tags.values().any(|doc| doc.dirty.is_set()));
+        let dirty = kit_index.is_some_and(|index| {
+            cx.model.kits[index]
+                .parsed_tags
+                .values()
+                .any(|doc| doc.dirty.is_set())
+        });
         let game = self.source_identity.1;
         let folder = selection_folder(&self.items, &self.source_identity.0);
-        let modal=egui::Modal::new(egui::Id::unique("bulk_rename_items"))
-            .frame(egui::Frame::window(&cx.egui.global_style())).show(cx.egui,|ui| {
-                ui.set_width(window_width(cx.egui,880.0));
-                if crate::app::search::draw_icon_window_header_with_help(ui,"Bulk Rename",ButtonIcon::Rename,&mut open,
-                    ("About Renaming",egui::Id::unique("bulk_rename_about"))) {
-                    cx.send(crate::app::help::HelpCommand::ShowDocSection(crate::app::help::RENAMING_HELP_SECTION));
+        let modal = egui::Modal::new(egui::Id::unique("bulk_rename_items"))
+            .frame(egui::Frame::window(&cx.egui.global_style()))
+            .show(cx.egui, |ui| {
+                ui.set_width(window_width(cx.egui, 880.0));
+                if crate::app::search::draw_icon_window_header_with_help(
+                    ui,
+                    "Bulk Rename",
+                    ButtonIcon::Rename,
+                    &mut open,
+                    ("About Renaming", egui::Id::unique("bulk_rename_about")),
+                ) {
+                    cx.send(crate::app::help::HelpCommand::ShowDocSection(
+                        crate::app::help::RENAMING_HELP_SECTION,
+                    ));
                 }
                 // The folder being renamed in.
                 draw_folder_band(ui, &folder);
                 ui.add_space(14.0);
                 padded_body(ui, |ui| {
-                let body_height = (window_work_area(cx.egui).height() - 260.0).clamp(300.0, 440.0);
-                let gap = 20.0;
-                let column_width = ((ui.available_width() - gap) / 2.0).floor();
-                ui.horizontal_top(|ui| {
-                    ui.spacing_mut().item_spacing.x = gap;
-                    // Left: Find and Replace With, then the references to fix.
-                    ui.allocate_ui_with_layout(Vec2::new(column_width, body_height), egui::Layout::top_down(egui::Align::Min), |ui| {
-                        ui.set_width(column_width);
-                        ui.spacing_mut().item_spacing.x = 8.0;
-                        let find_id=egui::Id::unique(("bulk_rename_find",self.request.stamp.kit));
-                        let replace_id=egui::Id::unique(("bulk_rename_replace",self.request.stamp.kit));
-                        ui.label("Find");
-                        ui.add(crate::app::ui_kit::singleline_text_edit(&mut self.options.find).id(find_id).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace));
-                        if ui.button("Current Name").on_hover_text("Insert {name}, the current name, into Find").clicked() {
-                            insert_token(ui,find_id,&mut self.options.find,"{name}");
-                        }
-                        ui.add_space(8.0);
-                        ui.label("Replace With");
-                        let replace=ui.add(crate::app::ui_kit::singleline_text_edit(&mut self.options.replacement).id(replace_id).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace));
-                        if self.focus {replace.request_focus();self.focus=false;}
-                        if ui.button("Current Name").on_hover_text("Insert {name}, the current name, into Replace With").clicked() {
-                            insert_token(ui,replace_id,&mut self.options.replacement,"{name}");
-                        }
-                        if let Some(error)=&self.error {ui.colored_label(ui.visuals().error_fg_color,error);}
-                        if kit_index.is_none() {
-                            ui.colored_label(ui.visuals().error_fg_color, "The workspace changed. Reopen Rename for this selection.");
-                        }
-                        ui.add_space(12.0);
-                        let remaining = ui.available_rect_before_wrap().height().max(120.0);
-                        RenameReferences::draw(ui,self.references.as_ref(),&scripts,refreshing_references,game,remaining);
-                    });
-                    // Right: each item's Original name beside its Rename result.
-                    ui.allocate_ui_with_layout(Vec2::new(column_width, body_height), egui::Layout::top_down(egui::Align::Min), |ui| {
-                        ui.set_width(column_width);
-                        ui.spacing_mut().item_spacing.y = 0.0;
-                        let square_bottom = egui::CornerRadius { nw: BOX_RADIUS, ne: BOX_RADIUS, sw: 0, se: 0 };
-                        framed_box(ui, body_height - SELECTION_FOOTER_HEIGHT, square_bottom, |ui| {
-                            ui.spacing_mut().item_spacing.y = 0.0;
-                            let width = ui.available_width();
-                            let column = rename_table_header(ui, width);
-                            let list_height = ui.available_height().max(PREVIEW_ROW_HEIGHT);
-                            ScrollArea::vertical().id_salt("rename_preview").max_height(list_height).auto_shrink([false,false]).show_rows(ui,PREVIEW_ROW_HEIGHT,rows.len(),|ui,visible| {
-                                ui.spacing_mut().item_spacing.y = 0.0;
-                                for index in visible {
-                                    let item=&self.items[index];let row=&rows[index];
-                                    let label=row.error.as_deref().map(str::to_owned).unwrap_or_else(||row.target.file_name().unwrap_or_default().to_string_lossy().into_owned());
-                                    let color=if row.error.is_some(){ui.visuals().error_fg_color}else if row.changed{foundation_blue()}else{subtle_dark()};
-                                    let icon = if item.extension.is_none() { RenameIcon::Folder } else { RenameIcon::Tag(item.group_tag) };
-                                    let original = item.path.file_name().unwrap_or_default().to_string_lossy().into_owned();
-                                    rename_table_row(ui, width, column, icon, game, &original, &item.path.display().to_string(), &label, color);
+                    let body_height =
+                        (window_work_area(cx.egui).height() - 260.0).clamp(300.0, 440.0);
+                    let gap = 20.0;
+                    let column_width = ((ui.available_width() - gap) / 2.0).floor();
+                    ui.horizontal_top(|ui| {
+                        ui.spacing_mut().item_spacing.x = gap;
+                        // Left: Find and Replace With, then the references to fix.
+                        ui.allocate_ui_with_layout(
+                            Vec2::new(column_width, body_height),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                ui.set_width(column_width);
+                                ui.spacing_mut().item_spacing.x = 8.0;
+                                let find_id =
+                                    egui::Id::unique(("bulk_rename_find", self.request.stamp.kit));
+                                let replace_id = egui::Id::unique((
+                                    "bulk_rename_replace",
+                                    self.request.stamp.kit,
+                                ));
+                                ui.label("Find");
+                                ui.add(
+                                    crate::app::ui_kit::singleline_text_edit(
+                                        &mut self.options.find,
+                                    )
+                                    .id(find_id)
+                                    .desired_width(f32::INFINITY)
+                                    .font(egui::TextStyle::Monospace),
+                                );
+                                if ui
+                                    .button("Current Name")
+                                    .on_hover_text("Insert {name}, the current name, into Find")
+                                    .clicked()
+                                {
+                                    insert_token(ui, find_id, &mut self.options.find, "{name}");
                                 }
-                            });
-                        });
-                        let renaming = |folders: bool| rows.iter().zip(&self.items)
-                            .filter(|(row, item)| row.changed && row.error.is_none() && item.extension.is_none() == folders)
-                            .count();
-                        draw_selection_footer(ui, rows.len(), renaming(true), renaming(false), invalid);
+                                ui.add_space(8.0);
+                                ui.label("Replace With");
+                                let replace = ui.add(
+                                    crate::app::ui_kit::singleline_text_edit(
+                                        &mut self.options.replacement,
+                                    )
+                                    .id(replace_id)
+                                    .desired_width(f32::INFINITY)
+                                    .font(egui::TextStyle::Monospace),
+                                );
+                                if self.focus {
+                                    replace.request_focus();
+                                    self.focus = false;
+                                }
+                                if ui
+                                    .button("Current Name")
+                                    .on_hover_text(
+                                        "Insert {name}, the current name, into Replace With",
+                                    )
+                                    .clicked()
+                                {
+                                    insert_token(
+                                        ui,
+                                        replace_id,
+                                        &mut self.options.replacement,
+                                        "{name}",
+                                    );
+                                }
+                                if let Some(error) = &self.error {
+                                    ui.colored_label(ui.visuals().error_fg_color, error);
+                                }
+                                if kit_index.is_none() {
+                                    ui.colored_label(
+                                        ui.visuals().error_fg_color,
+                                        "The workspace changed. Reopen Rename for this selection.",
+                                    );
+                                }
+                                ui.add_space(12.0);
+                                let remaining = ui.available_rect_before_wrap().height().max(120.0);
+                                RenameReferences::draw(
+                                    ui,
+                                    self.references.as_ref(),
+                                    &scripts,
+                                    refreshing_references,
+                                    game,
+                                    remaining,
+                                );
+                            },
+                        );
+                        // Right: each item's Original name beside its Rename result.
+                        ui.allocate_ui_with_layout(
+                            Vec2::new(column_width, body_height),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                ui.set_width(column_width);
+                                ui.spacing_mut().item_spacing.y = 0.0;
+                                let square_bottom = egui::CornerRadius {
+                                    nw: BOX_RADIUS,
+                                    ne: BOX_RADIUS,
+                                    sw: 0,
+                                    se: 0,
+                                };
+                                framed_box(
+                                    ui,
+                                    body_height - SELECTION_FOOTER_HEIGHT,
+                                    square_bottom,
+                                    |ui| {
+                                        ui.spacing_mut().item_spacing.y = 0.0;
+                                        let width = ui.available_width();
+                                        let column = rename_table_header(ui, width);
+                                        let list_height =
+                                            ui.available_height().max(PREVIEW_ROW_HEIGHT);
+                                        ScrollArea::vertical()
+                                            .id_salt("rename_preview")
+                                            .max_height(list_height)
+                                            .auto_shrink([false, false])
+                                            .show_rows(
+                                                ui,
+                                                PREVIEW_ROW_HEIGHT,
+                                                rows.len(),
+                                                |ui, visible| {
+                                                    ui.spacing_mut().item_spacing.y = 0.0;
+                                                    for index in visible {
+                                                        let item = &self.items[index];
+                                                        let row = &rows[index];
+                                                        let label = row
+                                                            .error
+                                                            .as_deref()
+                                                            .map(str::to_owned)
+                                                            .unwrap_or_else(|| {
+                                                                row.target
+                                                                    .file_name()
+                                                                    .unwrap_or_default()
+                                                                    .to_string_lossy()
+                                                                    .into_owned()
+                                                            });
+                                                        let color = if row.error.is_some() {
+                                                            ui.visuals().error_fg_color
+                                                        } else if row.changed {
+                                                            foundation_blue()
+                                                        } else {
+                                                            subtle_dark()
+                                                        };
+                                                        let icon = if item.extension.is_none() {
+                                                            RenameIcon::Folder
+                                                        } else {
+                                                            RenameIcon::Tag(item.group_tag)
+                                                        };
+                                                        let original = item
+                                                            .path
+                                                            .file_name()
+                                                            .unwrap_or_default()
+                                                            .to_string_lossy()
+                                                            .into_owned();
+                                                        rename_table_row(
+                                                            ui,
+                                                            width,
+                                                            column,
+                                                            icon,
+                                                            game,
+                                                            &original,
+                                                            &item.path.display().to_string(),
+                                                            &label,
+                                                            color,
+                                                        );
+                                                    }
+                                                },
+                                            );
+                                    },
+                                );
+                                let renaming = |folders: bool| {
+                                    rows.iter()
+                                        .zip(&self.items)
+                                        .filter(|(row, item)| {
+                                            row.changed
+                                                && row.error.is_none()
+                                                && item.extension.is_none() == folders
+                                        })
+                                        .count()
+                                };
+                                draw_selection_footer(
+                                    ui,
+                                    rows.len(),
+                                    renaming(true),
+                                    renaming(false),
+                                    invalid,
+                                );
+                            },
+                        );
                     });
-                });
                 });
                 ui.add_space(12.0);
-                popup_footer(ui,|ui| {ui.horizontal(|ui| {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui| {
-                        if icon_text_button(ui,ButtonIcon::Clear,"Cancel",true).clicked(){open=false;}
-                        let rename = icon_text_button(ui,ButtonIcon::Rename,if dirty{"Save All and Rename"}else{"Rename"},invalid==0&&changes>0&&kit_index.is_some()&&!scripts.checking);
-                        let rename = if invalid > 0 {
-                            rename.on_disabled_hover_text(format!("{invalid} invalid {}; see the Rename column", if invalid == 1 { "name" } else { "names" }))
-                        } else if scripts.checking {
-                            rename.on_disabled_hover_text(ScriptRows::WAITING)
-                        } else { rename };
-                        if rename.clicked() {
-                            cx.send(BrowserCommand::ApplyBulkRename {save:dirty});
-                        }
+                popup_footer(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if icon_text_button(ui, ButtonIcon::Clear, "Cancel", true).clicked() {
+                                open = false;
+                            }
+                            let rename = icon_text_button(
+                                ui,
+                                ButtonIcon::Rename,
+                                if dirty {
+                                    "Save All and Rename"
+                                } else {
+                                    "Rename"
+                                },
+                                invalid == 0
+                                    && changes > 0
+                                    && kit_index.is_some()
+                                    && !scripts.checking,
+                            );
+                            let rename = if invalid > 0 {
+                                rename.on_disabled_hover_text(format!(
+                                    "{invalid} invalid {}; see the Rename column",
+                                    if invalid == 1 { "name" } else { "names" }
+                                ))
+                            } else if scripts.checking {
+                                rename.on_disabled_hover_text(ScriptRows::WAITING)
+                            } else {
+                                rename
+                            };
+                            if rename.clicked() {
+                                cx.send(BrowserCommand::ApplyBulkRename { save: dirty });
+                            }
+                        });
                     });
-                });});
+                });
             });
         if previous_options != self.options {
             self.error = None;
@@ -975,7 +1459,9 @@ impl Baboon {
                 } else {
                     match source.entry_for_key(key) {
                         Some(entry) => match &entry.location {
-                            TagEntryLocation::LooseFile(path) => (path.clone(), Some(entry.group_tag)),
+                            TagEntryLocation::LooseFile(path) => {
+                                (path.clone(), Some(entry.group_tag))
+                            }
                             _ => return Err("Every selected item must support Rename".into()),
                         },
                         None => return Err("Every selected item must support Rename".into()),
@@ -1015,7 +1501,7 @@ impl Baboon {
                 occupied,
                 options: RenameOptions::default(),
                 references: None,
-            scripts: None,
+                scripts: None,
                 references_revision: None,
                 error: None,
                 focus: true,
@@ -1035,7 +1521,8 @@ impl Baboon {
             let request = dialog.request.clone();
             let items = dialog.items.clone();
             let options = dialog.options.clone();
-            let index = dialog.kit_index(&self.model)
+            let index = dialog
+                .kit_index(&self.model)
                 .ok_or("The workspace changed; select the items again")?;
             if self.tag_ops.folder_refactor.is_some() {
                 return Err("A file operation is already running".into());
@@ -1146,7 +1633,8 @@ impl BulkRenameDialog {
             })
             .collect();
         Self {
-            request: bulk::BulkRequest { destination: None,
+            request: bulk::BulkRequest {
+                destination: None,
                 stamp,
                 pane: String::new(),
                 keys: Vec::new(),
@@ -1177,12 +1665,22 @@ mod tests {
         let frame = |events: Vec<egui::Event>| {
             let mut clicked = false;
             let input = egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 200.0))),
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(400.0, 200.0),
+                )),
                 events,
                 ..Default::default()
             };
             let _ = crate::app::run_ui_test(&ctx, input, |ui| {
-                clicked = draw_link_row(ui, RenameIcon::Tag(None), None, "objects\\weapons\\rifle.weapon", "Explore", 28.0);
+                clicked = draw_link_row(
+                    ui,
+                    RenameIcon::Tag(None),
+                    None,
+                    "objects\\weapons\\rifle.weapon",
+                    "Explore",
+                    28.0,
+                );
             });
             clicked
         };
@@ -1190,15 +1688,32 @@ mod tests {
         // Well right of the text, still on the row.
         let point = egui::pos2(380.0, 20.0);
         let press = |pressed| egui::Event::PointerButton {
-            pos: point, button: egui::PointerButton::Primary, pressed, modifiers: Default::default(),
+            pos: point,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
         };
         assert!(!frame(vec![egui::Event::PointerMoved(point), press(true)]));
-        assert!(frame(vec![press(false)]), "a click on the row's empty end opens it");
+        assert!(
+            frame(vec![press(false)]),
+            "a click on the row's empty end opens it"
+        );
     }
     /// The referring tags the dialog lists in its count.
     fn known_references(app: &Baboon) -> Vec<String> {
-        app.dialogs.get::<BulkRenameDialog>().unwrap().references.as_ref()
-            .map(|references| references.paths.iter().map(|(path, _)| path.clone()).collect()).unwrap_or_default()
+        app.dialogs
+            .get::<BulkRenameDialog>()
+            .unwrap()
+            .references
+            .as_ref()
+            .map(|references| {
+                references
+                    .paths
+                    .iter()
+                    .map(|(path, _)| path.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
     }
     fn item(path: PathBuf) -> RenameItem {
         RenameItem {
@@ -1266,11 +1781,21 @@ mod tests {
         assert!(!rows[1].changed);
         let rows = preview(
             &items,
-            &RenameOptions { find: "OLD".into(), replacement: "new".into() },
+            &RenameOptions {
+                find: "OLD".into(),
+                replacement: "new".into(),
+            },
             &HashSet::new(),
         );
-        assert_eq!(rows[0].target, PathBuf::from("new_new.model"), "Find ignores letter case");
-        assert_eq!(replace_literal("ÉQUIPE_équipe", "équipe", "team"), "team_team");
+        assert_eq!(
+            rows[0].target,
+            PathBuf::from("new_new.model"),
+            "Find ignores letter case"
+        );
+        assert_eq!(
+            replace_literal("ÉQUIPE_équipe", "équipe", "team"),
+            "team_team"
+        );
         assert_eq!(replace_literal("a.b_a_b", "a.b", "new"), "new_a_b");
         assert_eq!(replace_literal("old", "old", "$1"), "$1");
     }
@@ -1282,15 +1807,27 @@ mod tests {
             replacement: replacement.into(),
         };
         // The defaults change nothing until Replace With does.
-        assert!(preview(&items, &RenameOptions::default(), &HashSet::new()).iter().all(|row| !row.changed && row.error.is_none()));
+        assert!(
+            preview(&items, &RenameOptions::default(), &HashSet::new())
+                .iter()
+                .all(|row| !row.changed && row.error.is_none())
+        );
         let rows = preview(&items, &options("{name}", "old_{name}"), &HashSet::new());
         assert_eq!(rows[0].target, PathBuf::from("old_crate.model"));
         assert_eq!(rows[1].target, PathBuf::from("old_Barrel.model"));
         // {name} in Find is the literal current name, so it can sit inside other text.
         let rows = preview(&items, &options("{name}", "{name}_{name}"), &HashSet::new());
         assert_eq!(rows[0].target, PathBuf::from("crate_crate.model"));
-        assert!(preview(&items, &options("", "anything"), &HashSet::new()).iter().all(|row| !row.changed && row.error.is_none()));
-        assert!(preview(&items, &options("{typo}", "x"), &HashSet::new()).iter().all(|row| row.error.is_some()));
+        assert!(
+            preview(&items, &options("", "anything"), &HashSet::new())
+                .iter()
+                .all(|row| !row.changed && row.error.is_none())
+        );
+        assert!(
+            preview(&items, &options("{typo}", "x"), &HashSet::new())
+                .iter()
+                .all(|row| row.error.is_some())
+        );
     }
     #[test]
     fn collisions_and_invalid_names_disable_apply_without_suffixing() {
@@ -1381,10 +1918,31 @@ mod tests {
         ];
         let references = RenameReferences::new(&items, &source).unwrap();
         assert!(references.complete);
-        assert_eq!(references.inside, [2, 0], "the folder's two tags get new paths; a selected tag counts none");
-        assert_eq!(folder_tags_note(1, "renamed folders"), "Includes references to 1 tag within renamed folders that will now have a new path.");
-        assert_eq!(folder_tags_note(4, "renamed folders"), "Includes references to 4 tags within renamed folders that will now have new paths.");
-        assert_eq!(references.paths.iter().map(|(path, _)| path.as_str()).collect::<Vec<_>>(), [r"group\internal.model", r"outside\only_b.model", r"outside\shared.model"]);
+        assert_eq!(
+            references.inside,
+            [2, 0],
+            "the folder's two tags get new paths; a selected tag counts none"
+        );
+        assert_eq!(
+            folder_tags_note(1, "renamed folders"),
+            "Includes references to 1 tag within renamed folders that will now have a new path."
+        );
+        assert_eq!(
+            folder_tags_note(4, "renamed folders"),
+            "Includes references to 4 tags within renamed folders that will now have new paths."
+        );
+        assert_eq!(
+            references
+                .paths
+                .iter()
+                .map(|(path, _)| path.as_str())
+                .collect::<Vec<_>>(),
+            [
+                r"group\internal.model",
+                r"outside\only_b.model",
+                r"outside\shared.model"
+            ]
+        );
         source
             .reverse_dependencies
             .as_mut()
@@ -1462,8 +2020,12 @@ mod tests {
     fn dialog_preview_is_live_and_cancel_changes_nothing() {
         let kit = LooseKit::new("bulk-rename-dialog", "halo3_mcc");
         let group = group_tag(kit.game, "render_model");
-        kit.write_mcc("crate", "model", |tag| set_reference(tag, "render model", group, "crate"));
-        kit.write_mcc("other/uses_crate", "model", |tag| set_reference(tag, "render model", group, "crate"));
+        kit.write_mcc("crate", "model", |tag| {
+            set_reference(tag, "render model", group, "crate")
+        });
+        kit.write_mcc("other/uses_crate", "model", |tag| {
+            set_reference(tag, "render model", group, "crate")
+        });
         kit.write_mcc("crate", "render_model", |_| {});
         let mut app = app();
         kit.install_indexed(&mut app);
@@ -1472,7 +2034,11 @@ mod tests {
         let mut driver = PromptDriver::new();
         driver.frame(&mut app, Vec::new());
         let initial = driver.frame(&mut app, Vec::new());
-        assert!(initial.iter().any(|(text, _)| text == "2 References to Fix"));
+        assert!(
+            initial
+                .iter()
+                .any(|(text, _)| text == "2 References to Fix")
+        );
         app.dialogs
             .get_mut::<BulkRenameDialog>()
             .unwrap()
@@ -1494,9 +2060,15 @@ mod tests {
                 "missing {label}: {page:?}"
             );
         }
-        assert!(!page.iter().any(|(text, _)| matches!(text.as_str(),
-            "Number ↑" | "Number ↓" | "Start Ascending At" | "Digits")));
-        assert!(known_references(&app).iter().any(|path| path == r"other\uses_crate.model"));
+        assert!(!page.iter().any(|(text, _)| matches!(
+            text.as_str(),
+            "Number ↑" | "Number ↓" | "Start Ascending At" | "Digits"
+        )));
+        assert!(
+            known_references(&app)
+                .iter()
+                .any(|path| path == r"other\uses_crate.model")
+        );
         driver.click(&mut app, "Cancel");
         assert!(app.dialogs.get::<BulkRenameDialog>().is_none());
         assert!(kit.path("crate.model").exists());
@@ -1508,20 +2080,37 @@ mod tests {
         kit.write_mcc("crate", "model", |_| {});
         let mut app = app();
         kit.install_indexed(&mut app);
-        app.begin_browser_bulk("pane".into(), vec![kit.key("crate.model")], BulkAction::Rename, &ctx());
+        app.begin_browser_bulk(
+            "pane".into(),
+            vec![kit.key("crate.model")],
+            BulkAction::Rename,
+            &ctx(),
+        );
         let mut driver = PromptDriver::new();
         driver.frame(&mut app, Vec::new());
         // What the header's About button sends.
-        app.apply_help_command(crate::app::help::HelpCommand::ShowDocSection(crate::app::help::RENAMING_HELP_SECTION));
+        app.apply_help_command(crate::app::help::HelpCommand::ShowDocSection(
+            crate::app::help::RENAMING_HELP_SECTION,
+        ));
         driver.frame(&mut app, Vec::new());
         let page = driver.frame(&mut app, Vec::new());
         let help = app.dialogs.get::<crate::app::help::HelpWindow>().unwrap();
         assert_eq!(help.doc_section.as_deref(), Some("Renaming"));
         assert!(help.above_dialogs);
-        assert!(page.iter().any(|(text, _)| text.contains("Find and Replace match names only")), "Renaming page not shown: {page:?}");
+        assert!(
+            page.iter()
+                .any(|(text, _)| text.contains("Find and Replace match names only")),
+            "Renaming page not shown: {page:?}"
+        );
         let layer = egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("baboon_help"));
-        assert!(driver.ctx.memory(|memory| memory.allows_interaction(layer)), "Help is locked under the rename window");
-        assert!(app.dialogs.get::<BulkRenameDialog>().is_some(), "opening About keeps Bulk Rename open");
+        assert!(
+            driver.ctx.memory(|memory| memory.allows_interaction(layer)),
+            "Help is locked under the rename window"
+        );
+        assert!(
+            app.dialogs.get::<BulkRenameDialog>().is_some(),
+            "opening About keeps Bulk Rename open"
+        );
     }
     #[test]
     fn refresh_tolerance_does_not_allow_a_different_editing_kit_or_engine() {
@@ -1598,7 +2187,11 @@ mod tests {
         let mut driver = PromptDriver::new();
         driver.frame(&mut app, Vec::new());
         driver.frame(&mut app, Vec::new());
-        assert!(known_references(&app).iter().any(|path| path == "a_user.model"));
+        assert!(
+            known_references(&app)
+                .iter()
+                .any(|path| path == "a_user.model")
+        );
         // A real periodic refresh patches references and advances generation,
         // even when the entry and reference counts remain exactly the same.
         kit.write_mcc("a_user", "model", |_| {});
@@ -1641,12 +2234,19 @@ mod tests {
         );
         let page = driver.frame(&mut app, Vec::new());
         assert!(
-            page.iter()
-                .any(|(text, _)| text == "2 References to Fix"),
+            page.iter().any(|(text, _)| text == "2 References to Fix"),
             "reference list vanished after refresh: {page:?}"
         );
-        assert!(known_references(&app).iter().any(|path| path == "b_user.model"));
-        assert!(!known_references(&app).iter().any(|path| path == "a_user.model"));
+        assert!(
+            known_references(&app)
+                .iter()
+                .any(|path| path == "b_user.model")
+        );
+        assert!(
+            !known_references(&app)
+                .iter()
+                .any(|path| path == "a_user.model")
+        );
         assert_eq!(
             app.dialogs
                 .get::<BulkRenameDialog>()
@@ -1663,7 +2263,11 @@ mod tests {
             .reverse_dependencies = None;
         let page = driver.frame(&mut app, Vec::new());
         assert!(page.iter().any(|(text, _)| text == "2 References to Fix"));
-        assert!(known_references(&app).iter().any(|path| path == "b_user.model"));
+        assert!(
+            known_references(&app)
+                .iter()
+                .any(|path| path == "b_user.model")
+        );
         let stamp = app.model.kit_stamp();
         app.handle_reverse_dependencies_built(stamp, refreshed, 0);
         driver.frame(&mut app, Vec::new());

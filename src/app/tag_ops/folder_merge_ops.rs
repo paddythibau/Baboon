@@ -106,19 +106,54 @@ pub(in crate::app) fn run(
     context: MergeContext,
     tx: &Sender<WorkerMessage>,
 ) -> Result<FolderRefactorFinished, String> {
-    run_many(root,vec![(source,destination)],moving,label,names,game,previous_entries,previous_index,context,tx,false)
+    run_many(
+        root,
+        vec![(source, destination)],
+        moving,
+        label,
+        names,
+        game,
+        previous_entries,
+        previous_index,
+        context,
+        tx,
+        false,
+    )
 }
 
 pub(in crate::app) fn run_many(
-    root: PathBuf, roots: Vec<(PathBuf,PathBuf)>, moving: bool, label: String,
-    names: TagNameIndex, game: Option<GameId>, previous_entries: Vec<TagEntry>,
-    previous_index: Option<ReverseDependencyIndex>, context: MergeContext, tx: &Sender<WorkerMessage>,
+    root: PathBuf,
+    roots: Vec<(PathBuf, PathBuf)>,
+    moving: bool,
+    label: String,
+    names: TagNameIndex,
+    game: Option<GameId>,
+    previous_entries: Vec<TagEntry>,
+    previous_index: Option<ReverseDependencyIndex>,
+    context: MergeContext,
+    tx: &Sender<WorkerMessage>,
     // A bulk move from the browser: reviewed in the Move Selected Items?
     // window, with the references it fixes.
     items_review: bool,
-) -> Result<FolderRefactorFinished,String> {
-    let mode = if items_review && moving { BatchMode::ItemsReview } else { BatchMode::Summary };
-    run_batch(root,roots,moving,label,names,game,previous_entries,previous_index,context,tx,mode)
+) -> Result<FolderRefactorFinished, String> {
+    let mode = if items_review && moving {
+        BatchMode::ItemsReview
+    } else {
+        BatchMode::Summary
+    };
+    run_batch(
+        root,
+        roots,
+        moving,
+        label,
+        names,
+        game,
+        previous_entries,
+        previous_index,
+        context,
+        tx,
+        mode,
+    )
 }
 
 /// How a batch is reviewed before it changes files.
@@ -136,30 +171,99 @@ enum BatchMode {
 
 /// Rename is collision-strict: a reviewed name is never silently merged,
 /// overwritten or suffixed by a conflict choice.
-pub(in crate::app) fn run_renames(root:PathBuf,roots:Vec<(PathBuf,PathBuf)>,names:TagNameIndex,game:Option<GameId>,previous_entries:Vec<TagEntry>,previous_index:Option<ReverseDependencyIndex>,context:MergeContext,tx:&Sender<WorkerMessage>)->Result<FolderRefactorFinished,String> {
-    run_batch(root,roots,true,"Renaming Items".into(),names,game,previous_entries,previous_index,context,tx,BatchMode::Renaming { same_folder: true })
+pub(in crate::app) fn run_renames(
+    root: PathBuf,
+    roots: Vec<(PathBuf, PathBuf)>,
+    names: TagNameIndex,
+    game: Option<GameId>,
+    previous_entries: Vec<TagEntry>,
+    previous_index: Option<ReverseDependencyIndex>,
+    context: MergeContext,
+    tx: &Sender<WorkerMessage>,
+) -> Result<FolderRefactorFinished, String> {
+    run_batch(
+        root,
+        roots,
+        true,
+        "Renaming Items".into(),
+        names,
+        game,
+        previous_entries,
+        previous_index,
+        context,
+        tx,
+        BatchMode::Renaming { same_folder: true },
+    )
 }
 
 /// A single tag or folder Move or Rename, already chosen by the user: no
 /// review, collision-strict, and journalled like every bulk operation, so a
 /// failed reference or script rewrite undoes the whole move.
 #[allow(clippy::too_many_arguments)]
-pub(in crate::app) fn run_reviewed_move(root:PathBuf,source:PathBuf,destination:PathBuf,label:String,names:TagNameIndex,game:Option<GameId>,previous_entries:Vec<TagEntry>,previous_index:Option<ReverseDependencyIndex>,context:MergeContext,tx:&Sender<WorkerMessage>)->Result<FolderRefactorFinished,String> {
+pub(in crate::app) fn run_reviewed_move(
+    root: PathBuf,
+    source: PathBuf,
+    destination: PathBuf,
+    label: String,
+    names: TagNameIndex,
+    game: Option<GameId>,
+    previous_entries: Vec<TagEntry>,
+    previous_index: Option<ReverseDependencyIndex>,
+    context: MergeContext,
+    tx: &Sender<WorkerMessage>,
+) -> Result<FolderRefactorFinished, String> {
     let same_folder = source.parent() == destination.parent();
-    run_batch(root,vec![(source,destination)],true,label,names,game,previous_entries,previous_index,context,tx,BatchMode::Renaming { same_folder })
+    run_batch(
+        root,
+        vec![(source, destination)],
+        true,
+        label,
+        names,
+        game,
+        previous_entries,
+        previous_index,
+        context,
+        tx,
+        BatchMode::Renaming { same_folder },
+    )
 }
 
-fn validate_rename_roots(root:&Path,roots:&[(PathBuf,PathBuf)],same_folder:bool)->Result<(),String> {
-    let canonical_root=root.canonicalize().map_err(|error|error.to_string())?;
-    let mut destinations=HashSet::new();
-    for (source,target) in roots {
-        let resolved=source.canonicalize().map_err(|error|error.to_string())?;
-        if resolved==canonical_root||!resolved.starts_with(&canonical_root) {return Err("Every selected item must be inside the tags folder".into());}
-        if same_folder && source.parent()!=target.parent() {return Err("Rename must keep every selected item in its current folder".into());}
-        if !same_folder && (!target.starts_with(root)||target.starts_with(source)) {return Err("Choose a destination inside the tags folder, and not inside the item itself".into());}
-        if !destinations.insert(crate::core::tag_key::path_identity(target)) {return Err("Several items would have the same name; no files changed".into());}
-        if disk::matching_path(target)?.is_some() {return Err(format!("A destination already exists: {}. No files changed.",target.display()));}
-        if roots.iter().any(|(other,_)|other!=source&&source.starts_with(other)) {return Err("Select either a folder or its contents, not both".into());}
+fn validate_rename_roots(
+    root: &Path,
+    roots: &[(PathBuf, PathBuf)],
+    same_folder: bool,
+) -> Result<(), String> {
+    let canonical_root = root.canonicalize().map_err(|error| error.to_string())?;
+    let mut destinations = HashSet::new();
+    for (source, target) in roots {
+        let resolved = source.canonicalize().map_err(|error| error.to_string())?;
+        if resolved == canonical_root || !resolved.starts_with(&canonical_root) {
+            return Err("Every selected item must be inside the tags folder".into());
+        }
+        if same_folder && source.parent() != target.parent() {
+            return Err("Rename must keep every selected item in its current folder".into());
+        }
+        if !same_folder && (!target.starts_with(root) || target.starts_with(source)) {
+            return Err(
+                "Choose a destination inside the tags folder, and not inside the item itself"
+                    .into(),
+            );
+        }
+        if !destinations.insert(crate::core::tag_key::path_identity(target)) {
+            return Err("Several items would have the same name; no files changed".into());
+        }
+        if disk::matching_path(target)?.is_some() {
+            return Err(format!(
+                "A destination already exists: {}. No files changed.",
+                target.display()
+            ));
+        }
+        if roots
+            .iter()
+            .any(|(other, _)| other != source && source.starts_with(other))
+        {
+            return Err("Select either a folder or its contents, not both".into());
+        }
     }
     Ok(())
 }
@@ -180,19 +284,30 @@ fn move_review(
     let planned: Vec<(String, String)> = entries
         .iter()
         .filter_map(|entry| {
-            let TagEntryLocation::LooseFile(path) = &entry.location else { return None };
+            let TagEntryLocation::LooseFile(path) = &entry.location else {
+                return None;
+            };
             let (source, target) = roots.iter().find(|(source, _)| path.starts_with(source))?;
             let new = target.join(path.strip_prefix(source).ok()?);
-            Some((entry.display_path.clone(), tag_path::relative_tag_path(new.strip_prefix(root).ok()?)))
+            Some((
+                entry.display_path.clone(),
+                tag_path::relative_tag_path(new.strip_prefix(root).ok()?),
+            ))
         })
         .collect();
     let changes = crate::core::script_paths::ScriptChanges::renaming(
-        planned.iter().map(|(old, new)| (old.as_str(), Some(new.as_str()))),
+        planned
+            .iter()
+            .map(|(old, new)| (old.as_str(), Some(new.as_str()))),
     );
     let report = super::script_fixes::check(root, game, entries, &changes, cancelled);
-    let scripts = crate::app::browser::bulk_rename::ScriptRows::new(game, changes.kind(), Some(&report));
+    let scripts =
+        crate::app::browser::bulk_rename::ScriptRows::new(game, changes.kind(), Some(&report));
     let sources: Vec<_> = roots.iter().map(|(source, _)| source.clone()).collect();
-    let folder = roots.first().and_then(|(_, target)| target.parent()).unwrap_or(root);
+    let folder = roots
+        .first()
+        .and_then(|(_, target)| target.parent())
+        .unwrap_or(root);
     let mut rows: Vec<_> = entries
         .iter()
         .filter(|entry| referrers.contains(&entry.key))
@@ -209,11 +324,23 @@ fn move_review(
     }
 }
 
-fn run_batch(root:PathBuf,roots:Vec<(PathBuf,PathBuf)>,moving:bool,label:String,names:TagNameIndex,game:Option<GameId>,mut previous_entries:Vec<TagEntry>,previous_index:Option<ReverseDependencyIndex>,context:MergeContext,tx:&Sender<WorkerMessage>,mode:BatchMode)->Result<FolderRefactorFinished,String> {
+fn run_batch(
+    root: PathBuf,
+    roots: Vec<(PathBuf, PathBuf)>,
+    moving: bool,
+    label: String,
+    names: TagNameIndex,
+    game: Option<GameId>,
+    mut previous_entries: Vec<TagEntry>,
+    previous_index: Option<ReverseDependencyIndex>,
+    context: MergeContext,
+    tx: &Sender<WorkerMessage>,
+    mode: BatchMode,
+) -> Result<FolderRefactorFinished, String> {
     let renaming = matches!(mode, BatchMode::Renaming { .. });
     let same_folder = matches!(mode, BatchMode::Renaming { same_folder: true });
-    let (source,destination)=roots.first().cloned().ok_or("No items selected")?;
-    let single_folder=roots.len()==1 && source.is_dir();
+    let (source, destination) = roots.first().cloned().ok_or("No items selected")?;
+    let single_folder = roots.len() == 1 && source.is_dir();
     let cancelled = || context.control.cancelled();
     let source_kind = TagSource::LooseFolder {
         root: root.clone(),
@@ -229,7 +356,9 @@ fn run_batch(root:PathBuf,roots:Vec<(PathBuf,PathBuf)>,moving:bool,label:String,
         if cancelled() {
             return Err("Folder operation cancelled; no files changed".into());
         }
-        if renaming {validate_rename_roots(&root,&roots,same_folder)?;}
+        if renaming {
+            validate_rename_roots(&root, &roots, same_folder)?;
+        }
         send_folder_refactor_progress(tx, &label, "Scanning folders and checking references", None);
         let inventory = Inventory::scan_many(&roots, &cancelled)?;
         let (all_before, mut index, mut index_changes) =
@@ -301,23 +430,47 @@ fn run_batch(root:PathBuf,roots:Vec<(PathBuf,PathBuf)>,moving:bool,label:String,
             })
             .collect::<Result<Vec<_>, _>>()?;
         if mode == BatchMode::ItemsReview {
-            review::ask_again(tx, &context.control, move_review(&root, &roots, &all_before, &referrers, game, inventory.conflicts(&cancelled)?, &cancelled), rebuilt.take())?;
+            review::ask_again(
+                tx,
+                &context.control,
+                move_review(
+                    &root,
+                    &roots,
+                    &all_before,
+                    &referrers,
+                    game,
+                    inventory.conflicts(&cancelled)?,
+                    &cancelled,
+                ),
+                rebuilt.take(),
+            )?;
         } else if !renaming {
-        review::ask(
-            tx,
-            &context.control,
-            if roots.len()>1 { ReviewKind::BatchSummary { sources:roots.iter().map(|(source,_)|source.clone()).collect(), destination:destination.parent().unwrap_or(&destination).to_owned(), files:inventory.files(), conflicts:inventory.conflicts(&cancelled)? } } else {            ReviewKind::Summary {
-                source: source.clone(),
-                destination: destination.clone(),
-                files: inventory.files(),
-                conflicts: inventory.conflicts(&cancelled)?,
-            } },
-        )?;
+            review::ask(
+                tx,
+                &context.control,
+                if roots.len() > 1 {
+                    ReviewKind::BatchSummary {
+                        sources: roots.iter().map(|(source, _)| source.clone()).collect(),
+                        destination: destination.parent().unwrap_or(&destination).to_owned(),
+                        files: inventory.files(),
+                        conflicts: inventory.conflicts(&cancelled)?,
+                    }
+                } else {
+                    ReviewKind::Summary {
+                        source: source.clone(),
+                        destination: destination.clone(),
+                        files: inventory.files(),
+                        conflicts: inventory.conflicts(&cancelled)?,
+                    }
+                },
+            )?;
         }
         let mut remaining = None;
         let plan = inventory.plan(
             |conflict| {
-                if renaming {return Err("A destination changed after preview; no files changed".into());}
+                if renaming {
+                    return Err("A destination changed after preview; no files changed".into());
+                }
                 if let Some(choice) = remaining
                     && (choice != Choice::Replace || conflict.replace_allowed())
                 {
@@ -349,8 +502,14 @@ fn run_batch(root:PathBuf,roots:Vec<(PathBuf,PathBuf)>,moving:bool,label:String,
             scan_folder_subtree_entries(&root, Path::new(""), &names).map_err(|e| e.to_string())?;
         // Compared as files: letter case and separators aside, which is how
         // Windows tells them apart too.
-        let current_keys: HashSet<_> = current_entries.iter().map(|entry| crate::core::tag_key::key_identity(&entry.key)).collect();
-        let previous_keys: HashSet<_> = all_before.iter().map(|entry| crate::core::tag_key::key_identity(&entry.key)).collect();
+        let current_keys: HashSet<_> = current_entries
+            .iter()
+            .map(|entry| crate::core::tag_key::key_identity(&entry.key))
+            .collect();
+        let previous_keys: HashSet<_> = all_before
+            .iter()
+            .map(|entry| crate::core::tag_key::key_identity(&entry.key))
+            .collect();
         let mut changed_reference_keys = Vec::new();
         for (path, contents, info) in &reference_files {
             if cancelled() {
@@ -368,14 +527,25 @@ fn run_batch(root:PathBuf,roots:Vec<(PathBuf,PathBuf)>,moving:bool,label:String,
         // What changed while the review was open, if anything, in words.
         let shown = |key: &str| {
             let path = key.strip_prefix("file:").unwrap_or(key);
-            Path::new(path).strip_prefix(&root).map(tag_path::relative_tag_path).unwrap_or_else(|_| path.to_owned())
+            Path::new(path)
+                .strip_prefix(&root)
+                .map(tag_path::relative_tag_path)
+                .unwrap_or_else(|_| path.to_owned())
         };
         let mut reasons = Vec::new();
         if current_keys != previous_keys {
             let new: Vec<_> = current_keys.difference(&previous_keys).collect();
             let gone: Vec<_> = previous_keys.difference(&current_keys).collect();
-            let example = new.first().or(gone.first()).map(|key| shown(key)).unwrap_or_default();
-            reasons.push(format!("the kit's tags changed ({} new, {} gone, such as {example})", new.len(), gone.len()));
+            let example = new
+                .first()
+                .or(gone.first())
+                .map(|key| shown(key))
+                .unwrap_or_default();
+            reasons.push(format!(
+                "the kit's tags changed ({} new, {} gone, such as {example})",
+                new.len(),
+                gone.len()
+            ));
         }
         if !plan.vacant_targets()? {
             reasons.push("something now exists where an item would go".to_owned());
@@ -384,7 +554,11 @@ fn run_batch(root:PathBuf,roots:Vec<(PathBuf,PathBuf)>,moving:bool,label:String,
             reasons.push("the selected items changed".to_owned());
         }
         if let Some(first) = changed_reference_keys.first() {
-            reasons.push(format!("{} referring tag(s) changed, such as {}", changed_reference_keys.len(), shown(first)));
+            reasons.push(format!(
+                "{} referring tag(s) changed, such as {}",
+                changed_reference_keys.len(),
+                shown(first)
+            ));
         }
         if !reasons.is_empty() {
             let reason = reasons.join("; ");
@@ -394,12 +568,21 @@ fn run_batch(root:PathBuf,roots:Vec<(PathBuf,PathBuf)>,moving:bool,label:String,
                     "Files kept changing while the review was open ({reason}). No files changed; try again, or reload the kit if it repeats."
                 ));
             }
-            let _ = tx.send(WorkerMessage::TerminalLine(format!("Rebuilding the review: {reason}")));
-            send_folder_refactor_progress(tx, &label, &format!("Files changed during review; rebuilding review: {reason}"), None);
+            let _ = tx.send(WorkerMessage::TerminalLine(format!(
+                "Rebuilding the review: {reason}"
+            )));
+            send_folder_refactor_progress(
+                tx,
+                &label,
+                &format!("Files changed during review; rebuilding review: {reason}"),
+                None,
+            );
             for key in changed_reference_keys {
                 index.clear_tag(&key);
             }
-            rebuilt = Some(format!("Files changed while this was open, so it was checked again: {reason}."));
+            rebuilt = Some(format!(
+                "Files changed while this was open, so it was checked again: {reason}."
+            ));
             previous_index = Some(index);
             // From what is on disk now: a remembered tag that is no longer
             // quite what the disk says (one move's stale entry, say) must
@@ -463,7 +646,13 @@ fn run_batch(root:PathBuf,roots:Vec<(PathBuf,PathBuf)>,moving:bool,label:String,
         send_folder_refactor_progress(
             tx,
             &label,
-            if same_folder {"Applying rename (Cancel unavailable)"} else if renaming {"Applying move (Cancel unavailable)"} else {"Applying folder merge (Cancel unavailable)"},
+            if same_folder {
+                "Applying rename (Cancel unavailable)"
+            } else if renaming {
+                "Applying move (Cancel unavailable)"
+            } else {
+                "Applying folder merge (Cancel unavailable)"
+            },
             None,
         );
         let mut transaction = Transaction::for_kit(&root)?;
@@ -485,8 +674,20 @@ fn run_batch(root:PathBuf,roots:Vec<(PathBuf,PathBuf)>,moving:bool,label:String,
                         &crate::core::storage::data_path("deleted-tags"),
                         base,
                     )?;
-                    let relative = roots.iter().map(|(_,destination)| destination.strip_prefix(&root).map(Path::to_path_buf)).collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
-                    recovery_tree=Some(recovery::prepare_batch_paths(base,origin,&relative,"replace during folder merge",recovery::now_secs())?);
+                    let relative = roots
+                        .iter()
+                        .map(|(_, destination)| {
+                            destination.strip_prefix(&root).map(Path::to_path_buf)
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|e| e.to_string())?;
+                    recovery_tree = Some(recovery::prepare_batch_paths(
+                        base,
+                        origin,
+                        &relative,
+                        "replace during folder merge",
+                        recovery::now_secs(),
+                    )?);
                 }
                 let relative = path.strip_prefix(&root).map_err(|e| e.to_string())?;
                 let saved = recovery_tree.as_ref().unwrap().join(relative);
@@ -520,7 +721,12 @@ fn run_batch(root:PathBuf,roots:Vec<(PathBuf,PathBuf)>,moving:bool,label:String,
                     game,
                     &all_before,
                     &super::script_fixes::renames(&old_entries, &new_entries),
-                    &|path| targets.get(path).cloned().unwrap_or_else(|| path.to_path_buf()),
+                    &|path| {
+                        targets
+                            .get(path)
+                            .cloned()
+                            .unwrap_or_else(|| path.to_path_buf())
+                    },
                     &mut transaction,
                 )?
             } else {
@@ -590,7 +796,13 @@ fn run_batch(root:PathBuf,roots:Vec<(PathBuf,PathBuf)>,moving:bool,label:String,
         } else {
             HashMap::new()
         };
-        let action = if same_folder { "Renamed" } else if moving { "Moved" } else { "Copied" };
+        let action = if same_folder {
+            "Renamed"
+        } else if moving {
+            "Moved"
+        } else {
+            "Copied"
+        };
         // One tag moved or renamed on its own reads as such.
         let what = if roots.len() == 1 && !single_folder && plan.files.len() == 1 {
             "tag".to_owned()
@@ -599,16 +811,27 @@ fn run_batch(root:PathBuf,roots:Vec<(PathBuf,PathBuf)>,moving:bool,label:String,
         };
         let mut status = format!(
             "{action} {what}, updated {} reference(s) in {} tag(s)",
-            rewritten.references_changed,
-            rewritten.tags_changed
+            rewritten.references_changed, rewritten.tags_changed
         );
         let mut script_lines = Vec::new();
         super::script_fixes::report(&scripts, &mut status, &mut script_lines);
         let mut lines = vec![
             {
-                let shown = |path: &Path| path.strip_prefix(&root).map(tag_path::relative_tag_path).unwrap_or_else(|_| path.display().to_string());
-                let more = if roots.len() > 1 { format!(" (and {} more)", roots.len() - 1) } else { String::new() };
-                format!("{action}: {} -> {}{more}", shown(&source), shown(&destination))
+                let shown = |path: &Path| {
+                    path.strip_prefix(&root)
+                        .map(tag_path::relative_tag_path)
+                        .unwrap_or_else(|_| path.display().to_string())
+                };
+                let more = if roots.len() > 1 {
+                    format!(" (and {} more)", roots.len() - 1)
+                } else {
+                    String::new()
+                };
+                format!(
+                    "{action}: {} -> {}{more}",
+                    shown(&source),
+                    shown(&destination)
+                )
             },
             status.clone(),
         ];
@@ -626,7 +849,22 @@ fn run_batch(root:PathBuf,roots:Vec<(PathBuf,PathBuf)>,moving:bool,label:String,
             reverse_dependencies: Some(index),
             old_to_new_keys,
             moved: moving,
-            moved_folders: if moving {roots.iter().filter(|(source,_)|!source.exists()).filter_map(|(source,_)|plan.target_folder(source).map(|target|(source.strip_prefix(&root).unwrap().to_owned(),target.strip_prefix(&root).unwrap().to_owned()))).collect()}else{Vec::new()},
+            moved_folders: if moving {
+                roots
+                    .iter()
+                    .filter(|(source, _)| !source.exists())
+                    .filter_map(|(source, _)| {
+                        plan.target_folder(source).map(|target| {
+                            (
+                                source.strip_prefix(&root).unwrap().to_owned(),
+                                target.strip_prefix(&root).unwrap().to_owned(),
+                            )
+                        })
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            },
             moved_folder: (single_folder && moving && !source.exists()).then(|| {
                 (
                     source.strip_prefix(&root).unwrap().to_owned(),
@@ -850,7 +1088,9 @@ mod tests {
             .find(|entry| entry.display_path.replace('\\', "/") == "levels/test/user.model")
             .unwrap()
             .clone();
-        let TagEntryLocation::LooseFile(path) = &stale.location else { unreachable!() };
+        let TagEntryLocation::LooseFile(path) = &stale.location else {
+            unreachable!()
+        };
         let shouted = PathBuf::from(path.to_string_lossy().replace("levels", "LEVELS"));
         stale.key = file_entry_key(&shouted);
         stale.location = TagEntryLocation::LooseFile(shouted);
@@ -863,7 +1103,10 @@ mod tests {
             while let Ok(message) = rx.recv() {
                 if let WorkerMessage::FolderMergeReview(request) = message {
                     counted.fetch_add(1, Ordering::SeqCst);
-                    let _ = request.answer.send(Some(review::MergeAnswer { choice: None, apply_remaining: false }));
+                    let _ = request.answer.send(Some(review::MergeAnswer {
+                        choice: None,
+                        apply_remaining: false,
+                    }));
                 }
             }
         });
@@ -895,7 +1138,11 @@ mod tests {
         drop(tx);
         responder.join().unwrap();
         result.unwrap();
-        assert!(reviews.load(Ordering::SeqCst) <= 2, "asked {} times", reviews.load(Ordering::SeqCst));
+        assert!(
+            reviews.load(Ordering::SeqCst) <= 2,
+            "asked {} times",
+            reviews.load(Ordering::SeqCst)
+        );
         assert!(kit.path("moved/props/crate.model").exists());
     }
     #[test]

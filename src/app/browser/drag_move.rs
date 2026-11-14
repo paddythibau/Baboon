@@ -54,13 +54,19 @@ impl TagDrag {
 
 /// The browser drag hovering `response`, for a tag reference target.
 pub(in crate::app) fn hovered_tag(response: &egui::Response) -> Option<TagDrag> {
-    TagDrag::of(response.dnd_hover_payload::<DraggedTagRef>(), response.dnd_hover_payload::<DraggedItems>())
+    TagDrag::of(
+        response.dnd_hover_payload::<DraggedTagRef>(),
+        response.dnd_hover_payload::<DraggedItems>(),
+    )
 }
 
 /// The tag dropped on `response`, if a single tag was. A refused drop is
 /// taken too, so it lands nowhere else.
 pub(in crate::app) fn released_tag(response: &egui::Response) -> Option<Arc<DraggedTagRef>> {
-    match TagDrag::of(response.dnd_release_payload::<DraggedTagRef>(), response.dnd_release_payload::<DraggedItems>())? {
+    match TagDrag::of(
+        response.dnd_release_payload::<DraggedTagRef>(),
+        response.dnd_release_payload::<DraggedItems>(),
+    )? {
         TagDrag::Tag(tag) => Some(tag),
         TagDrag::Refused => None,
     }
@@ -69,7 +75,8 @@ pub(in crate::app) fn released_tag(response: &egui::Response) -> Option<Arc<Drag
 /// The single tag being dragged anywhere, as a tool outside Baboon takes it.
 pub(in crate::app) fn dragged_tag(ctx: &egui::Context) -> Option<Arc<DraggedTagRef>> {
     egui::DragAndDrop::payload::<DraggedTagRef>(ctx).or_else(|| {
-        egui::DragAndDrop::payload::<DraggedItems>(ctx).and_then(|items| items.tag.clone().map(Arc::new))
+        egui::DragAndDrop::payload::<DraggedItems>(ctx)
+            .and_then(|items| items.tag.clone().map(Arc::new))
     })
 }
 
@@ -77,13 +84,22 @@ pub(in crate::app) fn dragged_tag(ctx: &egui::Context) -> Option<Arc<DraggedTagR
 /// just this item when it is not selected (it becomes the selection). `tag`
 /// is the row's tag. Returns `false` outside Flat view, where the row starts
 /// its own drag.
-pub(super) fn start(ui: &Ui, response: &egui::Response, key: &str, tag: Option<DraggedTagRef>) -> bool {
+pub(super) fn start(
+    ui: &Ui,
+    response: &egui::Response,
+    key: &str,
+    tag: Option<DraggedTagRef>,
+) -> bool {
     let Some((kit, pane, keys)) = drag_selection(ui, key) else {
         return false;
     };
     let entries = operation_entries(ui);
     // One pass over the kit's tags for the whole selection, not one per item.
-    let wanted: HashSet<&str> = keys.iter().map(String::as_str).filter(|key| !key.starts_with(FOLDER_PANE_PREFIX)).collect();
+    let wanted: HashSet<&str> = keys
+        .iter()
+        .map(String::as_str)
+        .filter(|key| !key.starts_with(FOLDER_PANE_PREFIX))
+        .collect();
     let found: HashMap<&str, &TagEntry> = entries
         .as_deref()
         .into_iter()
@@ -97,17 +113,30 @@ pub(super) fn start(ui: &Ui, response: &egui::Response, key: &str, tag: Option<D
         .filter_map(|key| {
             if let Some(path) = key.strip_prefix(FOLDER_PANE_PREFIX) {
                 let path = path.replace('/', "\\");
-                return Some(DraggedItem { key, path, folder: true });
+                return Some(DraggedItem {
+                    key,
+                    path,
+                    folder: true,
+                });
             }
             let entry = *found.get(key.as_str())?;
-            Some(DraggedItem { path: entry.display_path.replace('/', "\\"), key, folder: false })
+            Some(DraggedItem {
+                path: entry.display_path.replace('/', "\\"),
+                key,
+                folder: false,
+            })
         })
         .collect();
     if items.is_empty() {
         return false;
     }
     let tag = tag.filter(|_| items.len() == 1 && !items[0].folder);
-    response.dnd_set_drag_payload(DraggedItems { kit, pane, items, tag });
+    response.dnd_set_drag_payload(DraggedItems {
+        kit,
+        pane,
+        items,
+        tag,
+    });
     true
 }
 
@@ -127,7 +156,13 @@ const ALREADY_HERE: &str = "Already in this folder";
 
 /// What dropping `drag` into `folder` (relative, `\`-separated) of `kit`
 /// would do: the label beside the pointer, or why it can't.
-pub(super) fn verdict(drag: &DraggedItems, kit: KitId, folder: &str, writable: bool, copy: bool) -> Result<String, String> {
+pub(super) fn verdict(
+    drag: &DraggedItems,
+    kit: KitId,
+    folder: &str,
+    writable: bool,
+    copy: bool,
+) -> Result<String, String> {
     if drag.kit != kit {
         return Err("Drop onto a folder in the same kit".into());
     }
@@ -142,7 +177,11 @@ pub(super) fn verdict(drag: &DraggedItems, kit: KitId, folder: &str, writable: b
     if drag.items.iter().any(|item| item.folder && inside(item)) {
         return Err("A folder can't go inside itself".into());
     }
-    let parent = |item: &DraggedItem| tag_path::parent(&item.path).unwrap_or("").to_ascii_lowercase();
+    let parent = |item: &DraggedItem| {
+        tag_path::parent(&item.path)
+            .unwrap_or("")
+            .to_ascii_lowercase()
+    };
     if !copy && drag.items.iter().all(|item| parent(item) == lower) {
         return Err(ALREADY_HERE.into());
     }
@@ -150,8 +189,15 @@ pub(super) fn verdict(drag: &DraggedItems, kit: KitId, folder: &str, writable: b
         [item] => tag_path::name(&item.path).to_owned(),
         items => format!("{} items", items.len()),
     };
-    let target = if folder.is_empty() { "the tags folder".to_owned() } else { tag_path::name(folder).to_owned() };
-    Ok(format!("{} {what} to {target}", if copy { "Copy" } else { "Move" }))
+    let target = if folder.is_empty() {
+        "the tags folder".to_owned()
+    } else {
+        tag_path::name(folder).to_owned()
+    };
+    Ok(format!(
+        "{} {what} to {target}",
+        if copy { "Copy" } else { "Move" }
+    ))
 }
 
 /// Shown beside the pointer this frame by [`draw_drag_label`]: the target's
@@ -186,7 +232,9 @@ pub(in crate::app) fn drop_target(
     writable: bool,
 ) -> Option<BrowserAction> {
     let frame = ctx.cumulative_frame_nr();
-    let claimed = ctx.data(|data| data.get_temp::<Hint>(hint_id())).is_some_and(|hint| hint.frame == frame);
+    let claimed = ctx
+        .data(|data| data.get_temp::<Hint>(hint_id()))
+        .is_some_and(|hint| hint.frame == frame);
     if claimed || !over {
         return None;
     }
@@ -199,14 +247,35 @@ pub(in crate::app) fn drop_target(
     // behind its row (showing the folder above) doesn't take the drop and
     // move the items up a level.
     if verdict.as_ref().is_err_and(|reason| reason == ALREADY_HERE) {
-        ctx.data_mut(|data| data.insert_temp(hint_id(), Hint { frame, verdict: None }));
+        ctx.data_mut(|data| {
+            data.insert_temp(
+                hint_id(),
+                Hint {
+                    frame,
+                    verdict: None,
+                },
+            )
+        });
         return None;
     }
     if verdict.is_ok() {
-        painter.rect_stroke(rect.shrink(1.0), 3.0, Stroke::new(1.5, foundation_blue()), egui::StrokeKind::Inside);
+        painter.rect_stroke(
+            rect.shrink(1.0),
+            3.0,
+            Stroke::new(1.5, foundation_blue()),
+            egui::StrokeKind::Inside,
+        );
     }
     let allowed = verdict.is_ok();
-    ctx.data_mut(|data| data.insert_temp(hint_id(), Hint { frame, verdict: Some(verdict) }));
+    ctx.data_mut(|data| {
+        data.insert_temp(
+            hint_id(),
+            Hint {
+                frame,
+                verdict: Some(verdict),
+            },
+        )
+    });
     if !ctx.input(|input| input.pointer.any_released()) {
         return None;
     }
@@ -227,7 +296,8 @@ pub(in crate::app) fn drop_target(
 pub(in crate::app) const DROP_IN_FLAT_VIEW: &str = "Drop onto a folder in Flat view";
 /// Why a folder tab in Groups view refuses a drop: groups are tag types, not
 /// folders.
-pub(in crate::app) const SWITCH_TO_FLAT_VIEW: &str = "Switch this tab to Flat or Tree view to drop here";
+pub(in crate::app) const SWITCH_TO_FLAT_VIEW: &str =
+    "Switch this tab to Flat or Tree view to drop here";
 /// Why a Tree view tab refuses a drop anywhere but a folder row: a tag row
 /// inside an expanded folder would leave it unclear which folder was meant.
 pub(in crate::app) const DROP_ONTO_A_FOLDER: &str = "Drop onto a folder";
@@ -260,7 +330,10 @@ pub(in crate::app) fn end_navigation_drops(ui: &Ui) {
 /// to collect it with [`take_tree_drop`] once it has drawn.
 pub(super) fn tree_folder_target(ui: &Ui, rect: egui::Rect, folder: &Path) {
     let kit = if browser_is_folder_pane(ui) {
-        ui.data(|data| data.get_temp::<(KitId, String)>(browser_selection_owner_id().with("drawing"))).map(|(kit, _)| kit)
+        ui.data(|data| {
+            data.get_temp::<(KitId, String)>(browser_selection_owner_id().with("drawing"))
+        })
+        .map(|(kit, _)| kit)
     } else {
         ui.data(|data| data.get_temp::<KitId>(navigation_kit_id()))
     };
@@ -268,7 +341,15 @@ pub(super) fn tree_folder_target(ui: &Ui, rect: egui::Rect, folder: &Path) {
         return;
     };
     let writable = browser_loose_source(ui) && !operation_read_only(ui);
-    if let Some(action) = drop_target(ui.ctx(), ui.painter(), ui.rect_contains_pointer(rect), rect, kit, folder, writable) {
+    if let Some(action) = drop_target(
+        ui.ctx(),
+        ui.painter(),
+        ui.rect_contains_pointer(rect),
+        rect,
+        kit,
+        folder,
+        writable,
+    ) {
         let parked = Arc::new(std::sync::Mutex::new(Some((kit, action))));
         ui.data_mut(|data| data.insert_temp(tree_drop_id(), parked));
     }
@@ -281,7 +362,9 @@ type ParkedDrop = Arc<std::sync::Mutex<Option<(KitId, BrowserAction)>>>;
 /// leaves it alone.
 pub(in crate::app) fn take_tree_drop(ctx: &egui::Context, kit: KitId) -> Option<BrowserAction> {
     let parked = ctx.data(|data| data.get_temp::<ParkedDrop>(tree_drop_id()))?;
-    let mut parked = parked.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut parked = parked
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if parked.as_ref().is_some_and(|(owner, _)| *owner == kit) {
         ctx.data_mut(|data| data.remove::<ParkedDrop>(tree_drop_id()));
         return parked.take().map(|(_, action)| action);
@@ -295,11 +378,21 @@ pub(in crate::app) fn take_tree_drop(ctx: &egui::Context, kit: KitId) -> Option<
 /// the drag looking as if it would work. Letting go there does nothing.
 pub(in crate::app) fn refuse_drop(ctx: &egui::Context, over: bool, reason: &str) {
     let frame = ctx.cumulative_frame_nr();
-    let claimed = ctx.data(|data| data.get_temp::<Hint>(hint_id())).is_some_and(|hint| hint.frame == frame);
+    let claimed = ctx
+        .data(|data| data.get_temp::<Hint>(hint_id()))
+        .is_some_and(|hint| hint.frame == frame);
     if claimed || !over || !egui::DragAndDrop::has_payload_of_type::<DraggedItems>(ctx) {
         return;
     }
-    ctx.data_mut(|data| data.insert_temp(hint_id(), Hint { frame, verdict: Some(Err(reason.to_owned())) }));
+    ctx.data_mut(|data| {
+        data.insert_temp(
+            hint_id(),
+            Hint {
+                frame,
+                verdict: Some(Err(reason.to_owned())),
+            },
+        )
+    });
 }
 
 /// Once a frame, after the panes and tabs: while a Flat view drag is under
@@ -309,26 +402,50 @@ pub(in crate::app) fn draw_drag_label(ctx: &egui::Context) {
     let Some(drag) = egui::DragAndDrop::payload::<DraggedItems>(ctx) else {
         return;
     };
-    let Some(pointer) = ctx.pointer_latest_pos() else { return };
+    let Some(pointer) = ctx.pointer_latest_pos() else {
+        return;
+    };
     let frame = ctx.cumulative_frame_nr();
-    let hint = ctx.data(|data| data.get_temp::<Hint>(hint_id())).filter(|hint| hint.frame == frame);
+    let hint = ctx
+        .data(|data| data.get_temp::<Hint>(hint_id()))
+        .filter(|hint| hint.frame == frame);
     let copy = is_copy(ctx);
     let (text, cursor, error) = match hint.and_then(|hint| hint.verdict) {
-        Some(Ok(text)) => (text, if copy { egui::CursorIcon::Copy } else { egui::CursorIcon::Grabbing }, false),
+        Some(Ok(text)) => (
+            text,
+            if copy {
+                egui::CursorIcon::Copy
+            } else {
+                egui::CursorIcon::Grabbing
+            },
+            false,
+        ),
         Some(Err(reason)) => (reason, egui::CursorIcon::NotAllowed, true),
         None => {
             let what = match drag.items.as_slice() {
                 [item] => tag_path::name(&item.path).to_owned(),
                 items => format!("{} items", items.len()),
             };
-            (format!("{} {what}", if copy { "Copy" } else { "Move" }), egui::CursorIcon::Grabbing, false)
+            (
+                format!("{} {what}", if copy { "Copy" } else { "Move" }),
+                egui::CursorIcon::Grabbing,
+                false,
+            )
         }
     };
     ctx.set_cursor_icon(cursor);
-    let color = if error { ctx.global_style().visuals.error_fg_color } else { text_dark() };
+    let color = if error {
+        ctx.global_style().visuals.error_fg_color
+    } else {
+        text_dark()
+    };
     // The action's icon first: Move, or Copy while Ctrl is held. Red with
     // the reason when the drop isn't allowed.
-    let icon = if copy { ButtonIcon::Copy } else { ButtonIcon::Move };
+    let icon = if copy {
+        ButtonIcon::Copy
+    } else {
+        ButtonIcon::Move
+    };
     egui::Area::new(egui::Id::unique("browser_drag_label"))
         .order(egui::Order::Tooltip)
         .fixed_pos(pointer + egui::vec2(16.0, 18.0))
@@ -360,7 +477,11 @@ mod tests {
             pane: "pane".into(),
             items: items
                 .iter()
-                .map(|(path, folder)| DraggedItem { key: (*path).into(), path: (*path).into(), folder: *folder })
+                .map(|(path, folder)| DraggedItem {
+                    key: (*path).into(),
+                    path: (*path).into(),
+                    folder: *folder,
+                })
                 .collect(),
             tag: None,
         }
@@ -374,16 +495,29 @@ mod tests {
         // As the app does: icons are rasterized by its SVG loader.
         crate::app::Baboon::configure_context(&ctx);
         let frame = |ctrl: bool| {
-            let modifiers = if ctrl { egui::Modifiers::CTRL } else { egui::Modifiers::NONE };
+            let modifiers = if ctrl {
+                egui::Modifiers::CTRL
+            } else {
+                egui::Modifiers::NONE
+            };
             let output = crate::app::run_ui_test(
                 &ctx,
                 egui::RawInput {
-                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(600.0, 400.0))),
-                    events: vec![egui::Event::ModifiersChanged(modifiers), egui::Event::PointerMoved(egui::pos2(100.0, 100.0))],
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        Vec2::new(600.0, 400.0),
+                    )),
+                    events: vec![
+                        egui::Event::ModifiersChanged(modifiers),
+                        egui::Event::PointerMoved(egui::pos2(100.0, 100.0)),
+                    ],
                     ..Default::default()
                 },
                 |ui| {
-                    egui::DragAndDrop::set_payload(ui.ctx(), drag(&[("a.model", false), ("b.model", false)]));
+                    egui::DragAndDrop::set_payload(
+                        ui.ctx(),
+                        drag(&[("a.model", false), ("b.model", false)]),
+                    );
                     draw_drag_label(ui.ctx());
                 },
             );
@@ -423,12 +557,28 @@ mod tests {
             egui::DragAndDrop::set_payload(ui.ctx(), drag(&[(r"objects\weapons\a.model", false)]));
             // The `weapons` row, then the `objects` pane behind it.
             for folder in [r"objects\weapons", "objects"] {
-                dropped.push(drop_target(ui.ctx(), ui.painter(), true, rect, KitId(1), Path::new(folder), true).is_some());
+                dropped.push(
+                    drop_target(
+                        ui.ctx(),
+                        ui.painter(),
+                        true,
+                        rect,
+                        KitId(1),
+                        Path::new(folder),
+                        true,
+                    )
+                    .is_some(),
+                );
             }
         });
         assert_eq!(dropped, [false, false]);
-        let hint = ctx.data(|data| data.get_temp::<Hint>(hint_id())).expect("the row claims the pointer");
-        assert!(hint.verdict.is_none(), "a neutral label, not {ALREADY_HERE} or the pane's Move");
+        let hint = ctx
+            .data(|data| data.get_temp::<Hint>(hint_id()))
+            .expect("the row claims the pointer");
+        assert!(
+            hint.verdict.is_none(),
+            "a neutral label, not {ALREADY_HERE} or the pane's Move"
+        );
     }
 
     /// The navigation pane, Tree and Groups tabs and Asset Browsers say why
@@ -437,51 +587,118 @@ mod tests {
     fn places_without_drops_say_why_unless_a_target_already_spoke() {
         let ctx = egui::Context::default();
         let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::splat(50.0));
-        let reason = || ctx.data(|data| data.get_temp::<Hint>(hint_id())).and_then(|hint| hint.verdict);
+        let reason = || {
+            ctx.data(|data| data.get_temp::<Hint>(hint_id()))
+                .and_then(|hint| hint.verdict)
+        };
         let _ = crate::app::run_ui_test(&ctx, egui::RawInput::default(), |ui| {
             egui::DragAndDrop::set_payload(ui.ctx(), drag(&[(r"objects\a.model", false)]));
             refuse_drop(ui.ctx(), false, DROP_IN_FLAT_VIEW);
             refuse_drop(ui.ctx(), true, SWITCH_TO_FLAT_VIEW);
         });
-        assert_eq!(reason(), Some(Err(SWITCH_TO_FLAT_VIEW.to_owned())), "only where the pointer is");
+        assert_eq!(
+            reason(),
+            Some(Err(SWITCH_TO_FLAT_VIEW.to_owned())),
+            "only where the pointer is"
+        );
         let _ = crate::app::run_ui_test(&ctx, egui::RawInput::default(), |ui| {
             egui::DragAndDrop::set_payload(ui.ctx(), drag(&[(r"objects\a.model", false)]));
-            let _ = drop_target(ui.ctx(), ui.painter(), true, rect, KitId(1), Path::new("other"), true);
+            let _ = drop_target(
+                ui.ctx(),
+                ui.painter(),
+                true,
+                rect,
+                KitId(1),
+                Path::new("other"),
+                true,
+            );
             refuse_drop(ui.ctx(), true, DROP_IN_FLAT_VIEW);
         });
-        assert_eq!(reason(), Some(Ok("Move a.model to other".to_owned())), "the folder under the pointer wins");
+        assert_eq!(
+            reason(),
+            Some(Ok("Move a.model to other".to_owned())),
+            "the folder under the pointer wins"
+        );
     }
 
     #[test]
     fn reference_fields_take_one_dragged_tag_and_refuse_the_rest() {
-        let tag = DraggedTagRef { group_tag: 1, input: "x".into(), rel_path: "x".into(), file_path: None };
-        let one = DraggedItems { tag: Some(tag.clone()), ..drag(&[("a.model", false)]) };
-        assert!(matches!(TagDrag::of(None, Some(Arc::new(one))), Some(TagDrag::Tag(_))));
-        for refused in [drag(&[("a.model", false), ("b.model", false)]), drag(&[("folder", true)])] {
-            assert!(matches!(TagDrag::of(None, Some(Arc::new(refused))), Some(TagDrag::Refused)));
+        let tag = DraggedTagRef {
+            group_tag: 1,
+            input: "x".into(),
+            rel_path: "x".into(),
+            file_path: None,
+        };
+        let one = DraggedItems {
+            tag: Some(tag.clone()),
+            ..drag(&[("a.model", false)])
+        };
+        assert!(matches!(
+            TagDrag::of(None, Some(Arc::new(one))),
+            Some(TagDrag::Tag(_))
+        ));
+        for refused in [
+            drag(&[("a.model", false), ("b.model", false)]),
+            drag(&[("folder", true)]),
+        ] {
+            assert!(matches!(
+                TagDrag::of(None, Some(Arc::new(refused))),
+                Some(TagDrag::Refused)
+            ));
         }
         // A tree view's tag drag, as before.
-        assert!(matches!(TagDrag::of(Some(Arc::new(tag)), None), Some(TagDrag::Tag(_))));
+        assert!(matches!(
+            TagDrag::of(Some(Arc::new(tag)), None),
+            Some(TagDrag::Tag(_))
+        ));
         assert!(TagDrag::of(None, None).is_none());
     }
 
     #[test]
     fn a_drop_says_what_it_will_do_or_why_it_cannot() {
         let one = drag(&[(r"objects\characters\grunt\grunt.biped", false)]);
-        let some = drag(&[(r"objects\characters\grunt", true), (r"objects\characters\elite", true)]);
+        let some = drag(&[
+            (r"objects\characters\grunt", true),
+            (r"objects\characters\elite", true),
+        ]);
         let covenant = r"objects\characters\covenant";
-        assert_eq!(verdict(&one, KitId(1), covenant, true, false).unwrap(), "Move grunt.biped to covenant");
-        assert_eq!(verdict(&some, KitId(1), covenant, true, true).unwrap(), "Copy 2 items to covenant");
-        assert_eq!(verdict(&some, KitId(1), "", true, false).unwrap(), "Move 2 items to the tags folder");
-        assert_eq!(verdict(&one, KitId(2), covenant, true, false).unwrap_err(), "Drop onto a folder in the same kit");
-        assert_eq!(verdict(&one, KitId(1), covenant, false, false).unwrap_err(), "This kit can't be changed");
+        assert_eq!(
+            verdict(&one, KitId(1), covenant, true, false).unwrap(),
+            "Move grunt.biped to covenant"
+        );
+        assert_eq!(
+            verdict(&some, KitId(1), covenant, true, true).unwrap(),
+            "Copy 2 items to covenant"
+        );
+        assert_eq!(
+            verdict(&some, KitId(1), "", true, false).unwrap(),
+            "Move 2 items to the tags folder"
+        );
+        assert_eq!(
+            verdict(&one, KitId(2), covenant, true, false).unwrap_err(),
+            "Drop onto a folder in the same kit"
+        );
+        assert_eq!(
+            verdict(&one, KitId(1), covenant, false, false).unwrap_err(),
+            "This kit can't be changed"
+        );
         for inside in [r"objects\characters\grunt", r"OBJECTS\characters\grunt\ai"] {
-            assert_eq!(verdict(&some, KitId(1), inside, true, false).unwrap_err(), "A folder can't go inside itself");
+            assert_eq!(
+                verdict(&some, KitId(1), inside, true, false).unwrap_err(),
+                "A folder can't go inside itself"
+            );
         }
         // A folder whose name merely starts the same is somewhere else.
         assert!(verdict(&some, KitId(1), r"objects\characters\grunt_v2", true, false).is_ok());
         let here = r"objects\characters";
-        assert_eq!(verdict(&some, KitId(1), here, true, false).unwrap_err(), ALREADY_HERE);
-        assert_eq!(verdict(&some, KitId(1), here, true, true).unwrap(), "Copy 2 items to characters", "copying in place duplicates");
+        assert_eq!(
+            verdict(&some, KitId(1), here, true, false).unwrap_err(),
+            ALREADY_HERE
+        );
+        assert_eq!(
+            verdict(&some, KitId(1), here, true, true).unwrap(),
+            "Copy 2 items to characters",
+            "copying in place duplicates"
+        );
     }
 }

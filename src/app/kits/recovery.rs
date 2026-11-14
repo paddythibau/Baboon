@@ -195,9 +195,16 @@ pub(in crate::app) fn prepare_draft_recovery_folder(
     }
     let folder = recovery::validate_folder(&draft_recovery_folder(draft), loaded_roots)?;
     if draft.recovery.folder.is_some() {
-        recovery::prepare_custom_location(&crate::core::storage::data_path("deleted-tags"), &folder)?;
-        fs::create_dir_all(&folder)
-            .map_err(|error| format!("Could not create Deleted Tags Folder at {}: {error}", folder.display()))?;
+        recovery::prepare_custom_location(
+            &crate::core::storage::data_path("deleted-tags"),
+            &folder,
+        )?;
+        fs::create_dir_all(&folder).map_err(|error| {
+            format!(
+                "Could not create Deleted Tags Folder at {}: {error}",
+                folder.display()
+            )
+        })?;
         // Resolve again after creation, matching the checks made when opening it.
         if let Some(error) = validate_draft_recovery(draft, profiles) {
             return Err(error);
@@ -327,7 +334,8 @@ mod tests {
 
     #[test]
     fn saving_custom_recovery_folder_creates_missing_parents_and_keeps_existing_files() {
-        let root = std::env::temp_dir().join(format!("baboon-recovery-save-{}", uuid::Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("baboon-recovery-save-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(root.join("tags")).unwrap();
         fs::create_dir_all(root.join("data")).unwrap();
         let mut draft = CustomEditingKitDraft::new();
@@ -346,7 +354,10 @@ mod tests {
 
     #[test]
     fn saving_invalid_or_uncreatable_recovery_folder_returns_an_error() {
-        let root = std::env::temp_dir().join(format!("baboon-recovery-save-error-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!(
+            "baboon-recovery-save-error-{}",
+            uuid::Uuid::new_v4()
+        ));
         fs::create_dir_all(root.join("tags")).unwrap();
         fs::create_dir_all(root.join("data")).unwrap();
         let mut draft = CustomEditingKitDraft::new();

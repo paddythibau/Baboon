@@ -44,10 +44,17 @@ impl GroupDefinitions {
     /// `game`'s groups, from the bundled definitions, read once per run.
     pub fn for_game(game: GameId) -> Arc<Self> {
         static CACHE: OnceLock<Mutex<HashMap<GameId, Arc<GroupDefinitions>>>> = OnceLock::new();
-        let mut cache = CACHE.get_or_init(Default::default).lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut cache = CACHE
+            .get_or_init(Default::default)
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         cache
             .entry(game)
-            .or_insert_with(|| Arc::new(Self::read(&crate::core::bundled::locate_definitions_root().join(game.as_str()))))
+            .or_insert_with(|| {
+                Arc::new(Self::read(
+                    &crate::core::bundled::locate_definitions_root().join(game.as_str()),
+                ))
+            })
             .clone()
     }
 
@@ -61,14 +68,25 @@ impl GroupDefinitions {
         for entry in listing.flatten() {
             let path = entry.path();
             if path.extension().and_then(|extension| extension.to_str()) != Some("json")
-                || path.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.starts_with('_'))
+                || path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with('_'))
             {
                 continue;
             }
-            let Ok(text) = std::fs::read_to_string(&path) else { continue };
-            let Ok(head) = serde_json::from_str::<Head>(&text) else { continue };
-            let (Some(name), Some(tag)) = (head.name, head.tag) else { continue };
-            definitions.tag_by_name.insert(name.to_ascii_lowercase(), tag.clone());
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(head) = serde_json::from_str::<Head>(&text) else {
+                continue;
+            };
+            let (Some(name), Some(tag)) = (head.name, head.tag) else {
+                continue;
+            };
+            definitions
+                .tag_by_name
+                .insert(name.to_ascii_lowercase(), tag.clone());
             definitions.by_tag.insert(
                 tag.clone(),
                 GroupDefinition {
@@ -93,10 +111,18 @@ impl GroupDefinitions {
         let mut ancestors = Vec::new();
         let mut parent = group.parent.as_deref();
         for _ in 0..16 {
-            let Some(key) = parent else { return (ancestors, true) };
+            let Some(key) = parent else {
+                return (ancestors, true);
+            };
             // A parent is a four-character tag, or now and then a name.
-            let tag = self.tag_by_name.get(&key.to_ascii_lowercase()).map(String::as_str).unwrap_or(key);
-            let Some(found) = self.by_tag.get(tag) else { return (ancestors, false) };
+            let tag = self
+                .tag_by_name
+                .get(&key.to_ascii_lowercase())
+                .map(String::as_str)
+                .unwrap_or(key);
+            let Some(found) = self.by_tag.get(tag) else {
+                return (ancestors, false);
+            };
             ancestors.push(found);
             parent = found.parent.as_deref();
         }
@@ -111,7 +137,10 @@ mod tests {
     #[test]
     fn a_biped_descends_from_unit_and_object() {
         let definitions = GroupDefinitions::for_game(GameId::Halo2);
-        let biped = definitions.groups().find(|group| group.name == "biped").expect("biped");
+        let biped = definitions
+            .groups()
+            .find(|group| group.name == "biped")
+            .expect("biped");
         let (ancestors, complete) = definitions.ancestors(biped);
         let names: Vec<_> = ancestors.iter().map(|group| group.name.as_str()).collect();
         assert_eq!(names, ["unit", "object"]);

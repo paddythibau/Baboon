@@ -6,7 +6,11 @@
 pub(super) enum Place {
     /// Argument `index` (from 0) of a call to `function`, which is passed
     /// `count` arguments in all (`None` when the call never closes).
-    Argument { function: String, index: usize, count: Option<usize> },
+    Argument {
+        function: String,
+        index: usize,
+        count: Option<usize>,
+    },
     /// The value of `(global <value_type> name value)`.
     GlobalValue { value_type: String },
     /// Code whose expected type cannot be read from its surroundings: the
@@ -65,21 +69,43 @@ impl Frame {
                     Place::Unknown
                 }
                 2 => match &self.global_type {
-                    Some(value_type) => Place::GlobalValue { value_type: value_type.clone() },
+                    Some(value_type) => Place::GlobalValue {
+                        value_type: value_type.clone(),
+                    },
                     None => Place::Unknown,
                 },
                 _ => Place::Unknown,
             },
             // Declarations: their bodies are any expression.
             "script" => Place::Unknown,
-            function => Place::Argument { function: function.to_owned(), index, count: None },
+            function => Place::Argument {
+                function: function.to_owned(),
+                index,
+                count: None,
+            },
         };
         Some(place)
     }
 }
 
 fn is_path_byte(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.' | b'\\' | b'/' | b'\'' | b'!' | b'&' | b'+' | b'@' | b'#' | b'$' | b'%' | b'~')
+    byte.is_ascii_alphanumeric()
+        || matches!(
+            byte,
+            b'_' | b'-'
+                | b'.'
+                | b'\\'
+                | b'/'
+                | b'\''
+                | b'!'
+                | b'&'
+                | b'+'
+                | b'@'
+                | b'#'
+                | b'$'
+                | b'%'
+                | b'~'
+        )
 }
 
 fn has_separator(bytes: &[u8]) -> bool {
@@ -87,7 +113,13 @@ fn has_separator(bytes: &[u8]) -> bool {
 }
 
 /// Path-like runs within a comment, as [`Place::Text`].
-fn text_runs(script: &[u8], start: usize, end: usize, line_at: &dyn Fn(usize) -> usize, out: &mut Vec<PathToken>) {
+fn text_runs(
+    script: &[u8],
+    start: usize,
+    end: usize,
+    line_at: &dyn Fn(usize) -> usize,
+    out: &mut Vec<PathToken>,
+) {
     let mut at = start;
     while at < end {
         if !is_path_byte(script[at]) {
@@ -104,7 +136,12 @@ fn text_runs(script: &[u8], start: usize, end: usize, line_at: &dyn Fn(usize) ->
             run_end -= 1;
         }
         if has_separator(&script[run_start..run_end]) {
-            out.push(PathToken { start: run_start, end: run_end, line: line_at(run_start), place: Place::Text });
+            out.push(PathToken {
+                start: run_start,
+                end: run_end,
+                line: line_at(run_start),
+                place: Place::Text,
+            });
         }
     }
 }
@@ -132,7 +169,13 @@ fn close(frame: Frame, out: &mut [PathToken]) {
 pub(super) fn path_tokens(script: &[u8]) -> Vec<PathToken> {
     // Line starts, for line numbers.
     let line_starts: Vec<usize> = std::iter::once(0)
-        .chain(script.iter().enumerate().filter(|(_, byte)| **byte == b'\n').map(|(at, _)| at + 1))
+        .chain(
+            script
+                .iter()
+                .enumerate()
+                .filter(|(_, byte)| **byte == b'\n')
+                .map(|(at, _)| at + 1),
+        )
         .collect();
     let line_at = |offset: usize| line_starts.partition_point(|start| *start <= offset);
 
@@ -151,7 +194,10 @@ pub(super) fn path_tokens(script: &[u8]) -> Vec<PathToken> {
                         .position(|pair| pair == b"*;")
                         .map_or(len, |found| start + found)
                 } else {
-                    script[start..].iter().position(|byte| *byte == b'\n').map_or(len, |found| start + found)
+                    script[start..]
+                        .iter()
+                        .position(|byte| *byte == b'\n')
+                        .map_or(len, |found| start + found)
                 };
                 text_runs(script, start, end, &line_at, &mut out);
                 at = if block { (end + 2).min(len) } else { end };
@@ -171,30 +217,62 @@ pub(super) fn path_tokens(script: &[u8]) -> Vec<PathToken> {
             }
             b'"' => {
                 let start = at + 1;
-                let end = script[start..].iter().position(|byte| *byte == b'"').map_or(len, |found| start + found);
-                let place = stack.last_mut().map_or(Some(Place::Unknown), |frame| frame.element(None));
+                let end = script[start..]
+                    .iter()
+                    .position(|byte| *byte == b'"')
+                    .map_or(len, |found| start + found);
+                let place = stack
+                    .last_mut()
+                    .map_or(Some(Place::Unknown), |frame| frame.element(None));
                 let inner = &script[start..end];
                 // Tag paths can hold spaces (Halo CE ships hundreds), so a
                 // quoted string of path characters and spaces is one path. A
                 // string holding anything else is prose; its path-like pieces
                 // could be the front of a longer spaced path, so they are
                 // neither reported nor edited.
-                if has_separator(inner) && inner.iter().all(|byte| is_path_byte(*byte) || *byte == b' ') {
-                    push(&mut out, &mut stack, PathToken { start, end, line: line_at(start), place: place.unwrap_or(Place::Unknown) });
+                if has_separator(inner)
+                    && inner
+                        .iter()
+                        .all(|byte| is_path_byte(*byte) || *byte == b' ')
+                {
+                    push(
+                        &mut out,
+                        &mut stack,
+                        PathToken {
+                            start,
+                            end,
+                            line: line_at(start),
+                            place: place.unwrap_or(Place::Unknown),
+                        },
+                    );
                 }
                 at = (end + 1).min(len);
             }
             byte if byte.is_ascii_whitespace() => at += 1,
             _ => {
                 let start = at;
-                while at < len && !script[at].is_ascii_whitespace() && !matches!(script[at], b'(' | b')' | b'"' | b';') {
+                while at < len
+                    && !script[at].is_ascii_whitespace()
+                    && !matches!(script[at], b'(' | b')' | b'"' | b';')
+                {
                     at += 1;
                 }
                 let atom = &script[start..at];
                 let text = std::str::from_utf8(atom).ok();
-                let place = stack.last_mut().map_or(Some(Place::Unknown), |frame| frame.element(text));
+                let place = stack
+                    .last_mut()
+                    .map_or(Some(Place::Unknown), |frame| frame.element(text));
                 if has_separator(atom) {
-                    push(&mut out, &mut stack, PathToken { start, end: at, line: line_at(start), place: place.unwrap_or(Place::Unknown) });
+                    push(
+                        &mut out,
+                        &mut stack,
+                        PathToken {
+                            start,
+                            end: at,
+                            line: line_at(start),
+                            place: place.unwrap_or(Place::Unknown),
+                        },
+                    );
                 }
             }
         }
@@ -209,12 +287,22 @@ mod tests {
     fn places(script: &str) -> Vec<(String, usize, Place)> {
         path_tokens(script.as_bytes())
             .into_iter()
-            .map(|token| (String::from_utf8_lossy(token.text(script.as_bytes())).into_owned(), token.line, token.place))
+            .map(|token| {
+                (
+                    String::from_utf8_lossy(token.text(script.as_bytes())).into_owned(),
+                    token.line,
+                    token.place,
+                )
+            })
             .collect()
     }
 
     fn argument(function: &str, index: usize, count: usize) -> Place {
-        Place::Argument { function: function.to_owned(), index, count: Some(count) }
+        Place::Argument {
+            function: function.to_owned(),
+            index,
+            count: Some(count),
+        }
     }
 
     #[test]
@@ -223,8 +311,16 @@ mod tests {
         assert_eq!(
             places(script),
             [
-                ("objects\\characters\\hunter\\hunter".to_owned(), 2, argument("custom_animation", 1, 4)),
-                ("objects\\characters\\elite\\elite".to_owned(), 3, argument("render_model_predict", 0, 2)),
+                (
+                    "objects\\characters\\hunter\\hunter".to_owned(),
+                    2,
+                    argument("custom_animation", 1, 4)
+                ),
+                (
+                    "objects\\characters\\elite\\elite".to_owned(),
+                    3,
+                    argument("render_model_predict", 0, 2)
+                ),
             ]
         );
     }
@@ -233,7 +329,13 @@ mod tests {
     fn a_global_value_takes_the_declared_type() {
         assert_eq!(
             places("(global object_definition grunt \"objects\\characters\\grunt\\grunt\")"),
-            [("objects\\characters\\grunt\\grunt".to_owned(), 1, Place::GlobalValue { value_type: "object_definition".into() })]
+            [(
+                "objects\\characters\\grunt\\grunt".to_owned(),
+                1,
+                Place::GlobalValue {
+                    value_type: "object_definition".into()
+                }
+            )]
         );
     }
 
@@ -243,7 +345,11 @@ mod tests {
         assert_eq!(
             places(script),
             [
-                ("objects\\characters\\grunt\\grunt".to_owned(), 1, Place::Text),
+                (
+                    "objects\\characters\\grunt\\grunt".to_owned(),
+                    1,
+                    Place::Text
+                ),
                 ("objects/a/b".to_owned(), 3, Place::Text),
             ]
         );
@@ -257,8 +363,16 @@ mod tests {
         assert_eq!(
             places(script),
             [
-                ("effects\\damage effects\\guaranteed plummet to untimely death".to_owned(), 1, argument("effect_new", 0, 2)),
-                ("sound\\dialog\\monitor\\monitor humming".to_owned(), 2, argument("sound_impulse_start", 0, 3)),
+                (
+                    "effects\\damage effects\\guaranteed plummet to untimely death".to_owned(),
+                    1,
+                    argument("effect_new", 0, 2)
+                ),
+                (
+                    "sound\\dialog\\monitor\\monitor humming".to_owned(),
+                    2,
+                    argument("sound_impulse_start", 0, 3)
+                ),
             ]
         );
     }
@@ -267,7 +381,11 @@ mod tests {
     fn a_nested_call_takes_up_its_argument_position() {
         assert_eq!(
             places("(object_create_anew_containing (foo) \"a\\b\")"),
-            [("a\\b".to_owned(), 1, argument("object_create_anew_containing", 1, 2))]
+            [(
+                "a\\b".to_owned(),
+                1,
+                argument("object_create_anew_containing", 1, 2)
+            )]
         );
     }
 }

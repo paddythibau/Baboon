@@ -41,11 +41,17 @@ impl Kit {
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(&path, bytes).unwrap();
             let group = tag_path::split_extension(display).unwrap().1;
-            let tag = fs::read_to_string(definitions.join("halo2_mcc").join(format!("{group}.json")))
-                .ok()
-                .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-                .and_then(|value| value.get("tag").and_then(|tag| tag.as_str()).map(str::to_owned))
-                .unwrap_or_else(|| "????".to_owned());
+            let tag =
+                fs::read_to_string(definitions.join("halo2_mcc").join(format!("{group}.json")))
+                    .ok()
+                    .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+                    .and_then(|value| {
+                        value
+                            .get("tag")
+                            .and_then(|tag| tag.as_str())
+                            .map(str::to_owned)
+                    })
+                    .unwrap_or_else(|| "????".to_owned());
             let mut four = [b' '; 4];
             four[..tag.len()].copy_from_slice(tag.as_bytes());
             entries.push(TagEntry {
@@ -59,7 +65,8 @@ impl Kit {
         for path in GRUNT.iter().chain([&SNIPER]) {
             add(path, Vec::new());
         }
-        let mut scenario = TagFile::new(definitions.join("halo2_mcc").join("scenario.json")).unwrap();
+        let mut scenario =
+            TagFile::new(definitions.join("halo2_mcc").join("scenario.json")).unwrap();
         {
             let mut root = scenario.root_mut();
             let mut field = root.field_path_mut("source files").unwrap();
@@ -67,7 +74,10 @@ impl Kit {
             block.add_element();
         }
         let mut root = scenario.root_mut();
-        root.field_path_mut("source files[0]/name").unwrap().set(TagFieldData::String("03a_mission".into())).unwrap();
+        root.field_path_mut("source files[0]/name")
+            .unwrap()
+            .set(TagFieldData::String("03a_mission".into()))
+            .unwrap();
         // The saved copy is lowercase, as Halo 2's are.
         root.field_path_mut("source files[0]/source")
             .unwrap()
@@ -75,23 +85,47 @@ impl Kit {
             .unwrap();
         add(SCENARIO, scenario.write_to_bytes().unwrap());
 
-        let data = base.join("H2EK").join("data").join(tag_path::to_relative(DATA_SCRIPT));
+        let data = base
+            .join("H2EK")
+            .join("data")
+            .join(tag_path::to_relative(DATA_SCRIPT));
         fs::create_dir_all(data.parent().unwrap()).unwrap();
         fs::write(&data, SCRIPT).unwrap();
-        let source = TagSource::LooseFolder { root: tags.clone(), game: Some(GameId::Halo2), definitions_root: definitions };
-        Self { base, tags, entries, source }
+        let source = TagSource::LooseFolder {
+            root: tags.clone(),
+            game: Some(GameId::Halo2),
+            definitions_root: definitions,
+        };
+        Self {
+            base,
+            tags,
+            entries,
+            source,
+        }
     }
 
     fn kit(&self) -> ScriptKit<'_> {
-        ScriptKit { tags_root: &self.tags, game: GameId::Halo2, source: &self.source, entries: &self.entries }
+        ScriptKit {
+            tags_root: &self.tags,
+            game: GameId::Halo2,
+            source: &self.source,
+            entries: &self.entries,
+        }
     }
 
     fn data_script(&self) -> PathBuf {
-        self.base.join("H2EK").join("data").join(tag_path::to_relative(DATA_SCRIPT))
+        self.base
+            .join("H2EK")
+            .join("data")
+            .join(tag_path::to_relative(DATA_SCRIPT))
     }
 
     fn saved_copy(&self) -> String {
-        let entry = self.entries.iter().find(|entry| entry.display_path == SCENARIO).unwrap();
+        let entry = self
+            .entries
+            .iter()
+            .find(|entry| entry.display_path == SCENARIO)
+            .unwrap();
         let tag = read_entry(&self.source, entry).unwrap();
         String::from_utf8(scenario_sources(&tag).remove(0).2).unwrap()
     }
@@ -108,12 +142,24 @@ impl Drop for Kit {
 }
 
 fn moved(paths: &[&str], from: &str, to: &str) -> ScriptChanges {
-    let news: Vec<String> = paths.iter().map(|path| path.replacen(from, to, 1)).collect();
-    ScriptChanges::renaming(paths.iter().copied().zip(news.iter().map(|new| Some(new.as_str()))))
+    let news: Vec<String> = paths
+        .iter()
+        .map(|path| path.replacen(from, to, 1))
+        .collect();
+    ScriptChanges::renaming(
+        paths
+            .iter()
+            .copied()
+            .zip(news.iter().map(|new| Some(new.as_str()))),
+    )
 }
 
 fn outcomes(report: &ScriptReport) -> Vec<(usize, Outcome, Option<String>)> {
-    report.scripts[0].hits.iter().map(|hit| (hit.line, hit.outcome, hit.new.clone())).collect()
+    report.scripts[0]
+        .hits
+        .iter()
+        .map(|hit| (hit.line, hit.outcome, hit.new.clone()))
+        .collect()
 }
 
 const COVENANT: &str = "objects\\characters\\covenant\\grunt\\grunt";
@@ -121,9 +167,17 @@ const COVENANT: &str = "objects\\characters\\covenant\\grunt\\grunt";
 #[test]
 fn moving_a_whole_folder_fixes_every_path_in_both_copies() {
     let kit = Kit::new("script-paths-move-folder");
-    let changes = moved(&GRUNT, "objects\\characters\\", "objects\\characters\\covenant\\");
+    let changes = moved(
+        &GRUNT,
+        "objects\\characters\\",
+        "objects\\characters\\covenant\\",
+    );
     let report = kit.check(&changes);
-    assert_eq!(report.scripts.len(), 1, "one row for the data file and the saved copy");
+    assert_eq!(
+        report.scripts.len(),
+        1,
+        "one row for the data file and the saved copy"
+    );
     let script = &report.scripts[0];
     assert_eq!(script.path(), DATA_SCRIPT);
     assert!(script.data_file);
@@ -139,39 +193,88 @@ fn moving_a_whole_folder_fixes_every_path_in_both_copies() {
             (7, Outcome::Fixed, fixed),
         ]
     );
-    assert_eq!(script.hits[0].expected.as_deref(), Some("object_definition"));
+    assert_eq!(
+        script.hits[0].expected.as_deref(),
+        Some("object_definition")
+    );
     assert_eq!(script.hits[1].expected.as_deref(), Some("animation_graph"));
 
     let mut transaction = Transaction::new().unwrap();
-    let summary = fix_scripts(&kit.kit(), &changes, &|path| path.to_path_buf(), &mut transaction).unwrap();
+    let summary = fix_scripts(
+        &kit.kit(),
+        &changes,
+        &|path| path.to_path_buf(),
+        &mut transaction,
+    )
+    .unwrap();
     transaction.commit();
-    assert_eq!(summary, ScriptFixSummary { scripts: 1, fixed: 4, cant_fix: 0, files_written: 2 });
-    let expected = SCRIPT.replace("objects\\characters\\grunt", "objects\\characters\\covenant\\grunt");
-    assert_eq!(fs::read_to_string(kit.data_script()).unwrap(), expected, "comments are updated too");
-    assert_eq!(kit.saved_copy(), expected.to_ascii_lowercase(), "the saved copy keeps its lowercase");
+    assert_eq!(
+        summary,
+        ScriptFixSummary {
+            scripts: 1,
+            fixed: 4,
+            cant_fix: 0,
+            files_written: 2
+        }
+    );
+    let expected = SCRIPT.replace(
+        "objects\\characters\\grunt",
+        "objects\\characters\\covenant\\grunt",
+    );
+    assert_eq!(
+        fs::read_to_string(kit.data_script()).unwrap(),
+        expected,
+        "comments are updated too"
+    );
+    assert_eq!(
+        kit.saved_copy(),
+        expected.to_ascii_lowercase(),
+        "the saved copy keeps its lowercase"
+    );
 }
 
 #[test]
 fn moving_one_of_several_same_named_tags_uses_the_expected_type() {
     let kit = Kit::new("script-paths-move-biped");
-    let changes = moved(&GRUNT[..1], "objects\\characters\\", "objects\\characters\\covenant\\");
+    let changes = moved(
+        &GRUNT[..1],
+        "objects\\characters\\",
+        "objects\\characters\\covenant\\",
+    );
     let report = kit.check(&changes);
     // The global and object_type_predict want an object: only the biped.
     // custom_animation wants the animation graph and predict_model_section the
     // render model, which stay. The unknown function could mean any of them.
     assert_eq!(
         outcomes(&report),
-        [(2, Outcome::Fixed, Some(COVENANT.to_owned())), (7, Outcome::CantFix, None)]
+        [
+            (2, Outcome::Fixed, Some(COVENANT.to_owned())),
+            (7, Outcome::CantFix, None)
+        ]
     );
 
     let mut transaction = Transaction::new().unwrap();
-    let summary = fix_scripts(&kit.kit(), &changes, &|path| path.to_path_buf(), &mut transaction).unwrap();
+    let summary = fix_scripts(
+        &kit.kit(),
+        &changes,
+        &|path| path.to_path_buf(),
+        &mut transaction,
+    )
+    .unwrap();
     transaction.commit();
     assert_eq!((summary.fixed, summary.cant_fix), (1, 1));
     let text = fs::read_to_string(kit.data_script()).unwrap();
-    assert!(text.contains("(global object_definition grunt_type \"objects\\characters\\covenant\\grunt\\grunt\")"));
-    assert!(text.contains("(mystery_function \"objects\\characters\\grunt\\grunt\")"), "left alone");
-    assert!(text.contains("; the grunts: objects\\characters\\grunt\\grunt."), "an ambiguous comment is left alone");
+    assert!(text.contains(
+        "(global object_definition grunt_type \"objects\\characters\\covenant\\grunt\\grunt\")"
+    ));
+    assert!(
+        text.contains("(mystery_function \"objects\\characters\\grunt\\grunt\")"),
+        "left alone"
+    );
+    assert!(
+        text.contains("; the grunts: objects\\characters\\grunt\\grunt."),
+        "an ambiguous comment is left alone"
+    );
 }
 
 #[test]
@@ -181,7 +284,11 @@ fn a_path_with_an_extension_means_that_tag() {
     let report = kit.check(&changes);
     assert_eq!(
         outcomes(&report),
-        [(6, Outcome::Fixed, Some("objects\\weapons\\sniper_rifle\\sniper_rifle.weapon".to_owned()))]
+        [(
+            6,
+            Outcome::Fixed,
+            Some("objects\\weapons\\sniper_rifle\\sniper_rifle.weapon".to_owned())
+        )]
     );
 }
 
@@ -190,14 +297,23 @@ fn deleting_counts_only_the_paths_that_will_break() {
     let kit = Kit::new("script-paths-delete");
     let report = kit.check(&ScriptChanges::deleting([GRUNT[0]]));
     assert_eq!(report.kind, ChangeKind::Delete);
-    assert_eq!(outcomes(&report), [(2, Outcome::Missing, None), (7, Outcome::MayBreak, None)]);
+    assert_eq!(
+        outcomes(&report),
+        [(2, Outcome::Missing, None), (7, Outcome::MayBreak, None)]
+    );
 
     let everything = kit.check(&ScriptChanges::deleting(GRUNT));
     assert_eq!(everything.scripts[0].count(Outcome::Missing), 4);
 
     // Deleting never rewrites.
     let mut transaction = Transaction::new().unwrap();
-    let summary = fix_scripts(&kit.kit(), &ScriptChanges::deleting(GRUNT), &|path| path.to_path_buf(), &mut transaction).unwrap();
+    let summary = fix_scripts(
+        &kit.kit(),
+        &ScriptChanges::deleting(GRUNT),
+        &|path| path.to_path_buf(),
+        &mut transaction,
+    )
+    .unwrap();
     transaction.commit();
     assert_eq!(summary, ScriptFixSummary::default());
     assert_eq!(fs::read_to_string(kit.data_script()).unwrap(), SCRIPT);
@@ -209,9 +325,22 @@ fn deleting_counts_only_the_paths_that_will_break() {
 fn deleting_the_scenario_too_reports_none_of_its_scripts() {
     let kit = Kit::new("script-paths-delete-scenario");
     let report = kit.check(&ScriptChanges::deleting([GRUNT[0], SCENARIO]));
-    assert!(report.scripts.is_empty(), "{:?}", report.scripts.iter().map(|script| script.path()).collect::<Vec<_>>());
+    assert!(
+        report.scripts.is_empty(),
+        "{:?}",
+        report
+            .scripts
+            .iter()
+            .map(|script| script.path())
+            .collect::<Vec<_>>()
+    );
     // The scenario staying, the same delete still reports its script.
-    assert_eq!(kit.check(&ScriptChanges::deleting([GRUNT[0]])).scripts.len(), 1);
+    assert_eq!(
+        kit.check(&ScriptChanges::deleting([GRUNT[0]]))
+            .scripts
+            .len(),
+        1
+    );
 }
 
 #[test]
@@ -227,9 +356,19 @@ fn a_rename_with_no_new_name_yet_is_listed_but_not_written() {
 fn a_rollback_restores_both_copies() {
     let kit = Kit::new("script-paths-rollback");
     let saved = kit.saved_copy();
-    let changes = moved(&GRUNT, "objects\\characters\\", "objects\\characters\\covenant\\");
+    let changes = moved(
+        &GRUNT,
+        "objects\\characters\\",
+        "objects\\characters\\covenant\\",
+    );
     let mut transaction = Transaction::new().unwrap();
-    fix_scripts(&kit.kit(), &changes, &|path| path.to_path_buf(), &mut transaction).unwrap();
+    fix_scripts(
+        &kit.kit(),
+        &changes,
+        &|path| path.to_path_buf(),
+        &mut transaction,
+    )
+    .unwrap();
     assert_ne!(fs::read_to_string(kit.data_script()).unwrap(), SCRIPT);
     let _ = transaction.rollback("a later step failed".into());
     assert_eq!(fs::read_to_string(kit.data_script()).unwrap(), SCRIPT);
@@ -242,9 +381,19 @@ fn a_read_only_script_stops_the_fix_before_anything_is_written() {
     let mut permissions = fs::metadata(kit.data_script()).unwrap().permissions();
     permissions.set_readonly(true);
     fs::set_permissions(kit.data_script(), permissions.clone()).unwrap();
-    let changes = moved(&GRUNT, "objects\\characters\\", "objects\\characters\\covenant\\");
+    let changes = moved(
+        &GRUNT,
+        "objects\\characters\\",
+        "objects\\characters\\covenant\\",
+    );
     let mut transaction = Transaction::new().unwrap();
-    let error = fix_scripts(&kit.kit(), &changes, &|path| path.to_path_buf(), &mut transaction).unwrap_err();
+    let error = fix_scripts(
+        &kit.kit(),
+        &changes,
+        &|path| path.to_path_buf(),
+        &mut transaction,
+    )
+    .unwrap_err();
     assert!(error.contains("read-only"), "{error}");
     let _ = transaction.rollback(error);
     assert_eq!(fs::read_to_string(kit.data_script()).unwrap(), SCRIPT);
@@ -257,17 +406,38 @@ fn a_read_only_script_stops_the_fix_before_anything_is_written() {
 #[test]
 fn games_without_checked_scripts_report_nothing() {
     let kit = Kit::new("script-paths-unsupported");
-    let changes = moved(&GRUNT, "objects\\characters\\", "objects\\characters\\covenant\\");
-    let other = ScriptKit { game: GameId::Halo4, ..kit.kit() };
-    assert!(check_scripts(&other, &changes, &|| false).unwrap().scripts.is_empty());
-    assert_eq!(script_support(Some(GameId::Halo2Amp)), Some(ScriptSupport::NotChecked));
-    assert_eq!(script_support(Some(GameId::HaloReach)), Some(ScriptSupport::Checked));
+    let changes = moved(
+        &GRUNT,
+        "objects\\characters\\",
+        "objects\\characters\\covenant\\",
+    );
+    let other = ScriptKit {
+        game: GameId::Halo4,
+        ..kit.kit()
+    };
+    assert!(
+        check_scripts(&other, &changes, &|| false)
+            .unwrap()
+            .scripts
+            .is_empty()
+    );
+    assert_eq!(
+        script_support(Some(GameId::Halo2Amp)),
+        Some(ScriptSupport::NotChecked)
+    );
+    assert_eq!(
+        script_support(Some(GameId::HaloReach)),
+        Some(ScriptSupport::Checked)
+    );
 }
 
 #[test]
 fn a_folder_of_tags_is_searched_for_once_by_its_folder() {
     let needles = |bases: &[&str]| -> Vec<String> {
-        needles_for(bases.iter().copied()).into_iter().map(|needle| String::from_utf8(needle).unwrap()).collect()
+        needles_for(bases.iter().copied())
+            .into_iter()
+            .map(|needle| String::from_utf8(needle).unwrap())
+            .collect()
     };
     assert_eq!(
         needles(&[
@@ -276,13 +446,22 @@ fn a_folder_of_tags_is_searched_for_once_by_its_folder() {
             r"objects\characters\heretic\heretic_grunt",
             "root_tag",
         ]),
-        ["objects/characters/heretic/", r"objects\characters\heretic\", "root_tag"],
+        [
+            "objects/characters/heretic/",
+            r"objects\characters\heretic\",
+            "root_tag"
+        ],
         "one search for the folder, none for the folders inside it"
     );
     // A folder whose name merely starts like another is its own search.
     assert_eq!(
         needles(&[r"objects\heretic\a", r"objects\heretic_grunt\b"]),
-        ["objects/heretic/", r"objects\heretic\", "objects/heretic_grunt/", r"objects\heretic_grunt\"]
+        [
+            "objects/heretic/",
+            r"objects\heretic\",
+            "objects/heretic_grunt/",
+            r"objects\heretic_grunt\"
+        ]
     );
 }
 
@@ -291,7 +470,8 @@ fn a_folder_of_tags_is_searched_for_once_by_its_folder() {
 /// (`monitor` within `monitor humming`) leaves it alone.
 #[test]
 fn halo_ce_paths_with_spaces_are_whole_paths() {
-    const DAMAGE: &str = r"effects\damage effects\guaranteed plummet to untimely death.damage_effect";
+    const DAMAGE: &str =
+        r"effects\damage effects\guaranteed plummet to untimely death.damage_effect";
     const MONITOR: &str = r"sound\dialog\monitor\monitor.sound";
     const HUMMING: &str = r"sound\dialog\monitor\monitor humming.sound";
     const CE_SCRIPT: &str = r#"(script static void fall
@@ -315,27 +495,56 @@ fn halo_ce_paths_with_spaces_are_whole_paths() {
             location: TagEntryLocation::LooseFile(path),
         });
     }
-    let script_path = base.join("HCEEK").join("data").join("levels").join("c20").join("scripts").join("c20main.hsc");
+    let script_path = base
+        .join("HCEEK")
+        .join("data")
+        .join("levels")
+        .join("c20")
+        .join("scripts")
+        .join("c20main.hsc");
     fs::create_dir_all(script_path.parent().unwrap()).unwrap();
     fs::write(&script_path, CE_SCRIPT).unwrap();
-    let source =
-        TagSource::LooseFolder { root: tags.clone(), game: Some(GameId::HaloCe), definitions_root: locate_definitions_root() };
-    let kit = ScriptKit { tags_root: &tags, game: GameId::HaloCe, source: &source, entries: &entries };
+    let source = TagSource::LooseFolder {
+        root: tags.clone(),
+        game: Some(GameId::HaloCe),
+        definitions_root: locate_definitions_root(),
+    };
+    let kit = ScriptKit {
+        tags_root: &tags,
+        game: GameId::HaloCe,
+        source: &source,
+        entries: &entries,
+    };
 
     let deleted = check_scripts(&kit, &ScriptChanges::deleting([DAMAGE]), &|| false).unwrap();
-    assert_eq!(outcomes(&deleted), [(2, Outcome::Missing, None)], "the spaced path is reported");
+    assert_eq!(
+        outcomes(&deleted),
+        [(2, Outcome::Missing, None)],
+        "the spaced path is reported"
+    );
 
     let monitor = ScriptChanges::renaming([(MONITOR, Some(r"sound\dialog\monitor\monitor_v2"))]);
-    assert!(check_scripts(&kit, &monitor, &|| false).unwrap().scripts.is_empty());
+    assert!(
+        check_scripts(&kit, &monitor, &|| false)
+            .unwrap()
+            .scripts
+            .is_empty()
+    );
     let mut transaction = Transaction::new().unwrap();
-    let summary = fix_scripts(&kit, &monitor, &|path| path.to_path_buf(), &mut transaction).unwrap();
+    let summary =
+        fix_scripts(&kit, &monitor, &|path| path.to_path_buf(), &mut transaction).unwrap();
     transaction.commit();
     assert_eq!(summary, ScriptFixSummary::default());
-    assert_eq!(fs::read_to_string(&script_path).unwrap(), CE_SCRIPT, "`monitor humming` is not `monitor`");
+    assert_eq!(
+        fs::read_to_string(&script_path).unwrap(),
+        CE_SCRIPT,
+        "`monitor humming` is not `monitor`"
+    );
 
     let humming = ScriptChanges::renaming([(HUMMING, Some(r"sound\dialog\monitor\monitor hum"))]);
     let mut transaction = Transaction::new().unwrap();
-    let summary = fix_scripts(&kit, &humming, &|path| path.to_path_buf(), &mut transaction).unwrap();
+    let summary =
+        fix_scripts(&kit, &humming, &|path| path.to_path_buf(), &mut transaction).unwrap();
     transaction.commit();
     assert_eq!(summary.fixed, 1);
     assert_eq!(
