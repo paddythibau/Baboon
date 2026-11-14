@@ -190,7 +190,23 @@ pub(super) fn verdict(
     } else {
         tag_path::name(folder).to_owned()
     };
-    Ok(format!("{} to {target}", if copy { "Copy" } else { "Move" }))
+    Ok(format!(
+        "{} to {target}",
+        if copy { "Copy" } else { "Move" }
+    ))
+}
+
+/// The gap between the drag's two tooltips (what is dragged, and where it
+/// would go), centred on the pointer.
+const DRAG_TOOLTIP_GAP: f32 = 4.0;
+
+/// The drag tooltips' background, so they read over anything.
+fn drag_tooltip_frame() -> egui::Frame {
+    egui::Frame::NONE
+        .fill(foundation_block_bar())
+        .stroke(Stroke::new(1.0, foundation_block_edge()))
+        .corner_radius(4.0)
+        .inner_margin(egui::Margin::symmetric(8, 4))
 }
 
 /// What is being dragged, as the text above the pointer says it: the tag or
@@ -418,16 +434,21 @@ pub(in crate::app) fn draw_drag_label(ctx: &egui::Context) {
         Some(Ok(_)) if copy => egui::CursorIcon::Copy,
         _ => egui::CursorIcon::Grabbing,
     });
-    // What is dragged, as plain text above the pointer, and what dropping
-    // here would do, boxed below it: apart, so the box can never cover the
-    // name, whichever is drawn last.
+    // What is dragged just above the pointer's centre, and what dropping here
+    // would do just below it, the gap between them centred on the pointer:
+    // apart, so neither can cover the other, whichever is drawn last.
     egui::Area::new(egui::Id::unique("browser_drag_name"))
         .order(egui::Order::Tooltip)
         .pivot(egui::Align2::LEFT_BOTTOM)
-        .fixed_pos(pointer + egui::vec2(16.0, -6.0))
+        .fixed_pos(pointer + egui::vec2(16.0, -DRAG_TOOLTIP_GAP / 2.0))
         .interactable(false)
         .show(ctx, |ui| {
-            ui.add(egui::Label::new(RichText::new(dragged_name(&drag)).color(text_dark())).extend());
+            drag_tooltip_frame().show(ui, |ui| {
+                ui.add(
+                    egui::Label::new(RichText::new(dragged_name(&drag)).color(text_dark()))
+                        .extend(),
+                );
+            });
         });
     // Nothing to say away from a target.
     let Some(verdict) = verdict else {
@@ -446,22 +467,17 @@ pub(in crate::app) fn draw_drag_label(ctx: &egui::Context) {
     };
     egui::Area::new(egui::Id::unique("browser_drag_label"))
         .order(egui::Order::Tooltip)
-        .fixed_pos(pointer + egui::vec2(16.0, 18.0))
+        .fixed_pos(pointer + egui::vec2(16.0, DRAG_TOOLTIP_GAP / 2.0))
         .interactable(false)
         .show(ctx, |ui| {
-            egui::Frame::NONE
-                .fill(foundation_block_bar())
-                .stroke(Stroke::new(1.0, foundation_block_edge()))
-                .corner_radius(4.0)
-                .inner_margin(egui::Margin::symmetric(8, 4))
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 6.0;
-                        let (rect, _) = ui.allocate_exact_size(Vec2::splat(16.0), Sense::hover());
-                        paint_button_icon_at(ui, icon, rect, color);
-                        ui.add(egui::Label::new(RichText::new(text).color(color)).extend());
-                    });
+            drag_tooltip_frame().show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    let (rect, _) = ui.allocate_exact_size(Vec2::splat(16.0), Sense::hover());
+                    paint_button_icon_at(ui, icon, rect, color);
+                    ui.add(egui::Label::new(RichText::new(text).color(color)).extend());
                 });
+            });
         });
 }
 
@@ -518,7 +534,15 @@ mod tests {
                     );
                     if over_target {
                         let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::splat(300.0));
-                        let _ = drop_target(ui.ctx(), ui.painter(), true, rect, KitId(1), Path::new("objects"), true);
+                        let _ = drop_target(
+                            ui.ctx(),
+                            ui.painter(),
+                            true,
+                            rect,
+                            KitId(1),
+                            Path::new("objects"),
+                            true,
+                        );
                     }
                     draw_drag_label(ui.ctx());
                 },
@@ -540,7 +564,10 @@ mod tests {
         // the next.
         frame(false, true);
         let (texts, icon) = frame(false, true);
-        assert!(texts.contains(&"2 items".to_owned()), "what is dragged, above: {texts:?}");
+        assert!(
+            texts.contains(&"2 items".to_owned()),
+            "what is dragged, above: {texts:?}"
+        );
         assert!(texts.contains(&"Move to objects".to_owned()), "{texts:?}");
         assert!(icon, "no icon painted beside the label");
         frame(true, true);
