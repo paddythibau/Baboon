@@ -38,7 +38,15 @@ impl Baboon {
         let pane_key=pane_owner.as_ref().map(|owner|owner.1.clone());
         if allowed && !popup {
         if ctx.input_mut(|input|input.consume_key(egui::Modifiers::ALT,egui::Key::ArrowUp)) {
-            if let Some(key)=pane_key.as_ref().or(self.model.kits[index].current_pane.as_ref()) {
+            // Alt+Up works without the browser holding focus, so it acts on
+            // the kit being worked in: the last-clicked pane only when it
+            // belongs to that kit, else the kit's current folder pane.
+            let active=self.model.active_kit_id();
+            let Some(active_index)=self.model.kit_index(active) else{return};
+            let owned=pane_key.as_ref().filter(|_|kit_id==active);
+            if let Some(key)=owned.or(self.model.kits[active_index].current_pane.as_ref()).cloned() {
+                let kit_id=active;
+                let key=&key;
                 if let Some(pane)=self.views[kit_id].browser.folder_browsers.get_mut(key) {
                     if let Some(parent)=pane.rel_path.parent().map(Path::to_path_buf) {
                         let child=folder_pane_key(&pane.rel_path);
@@ -81,7 +89,8 @@ impl Baboon {
         }
         if multiple && ctx.input_mut(|input|input.consume_key(egui::Modifiers::NONE,egui::Key::F2)) {
             if let Some(pane_key)=pane_key {
-                let keys=self.views[kit_id].browser.folder_browsers[&pane_key].selection.ordered_keys();
+                let Some(pane)=self.views[kit_id].browser.folder_browsers.get(&pane_key) else{return};
+                let keys=pane.selection.ordered_keys();
                 self.focus_kit(index);self.begin_browser_bulk(pane_key,keys,BulkAction::Rename,ctx);
             }
             return;
@@ -102,7 +111,8 @@ impl Baboon {
         if let Some((key,_))=navigation.filter(|(key,_)|matches!(key,egui::Key::Enter|egui::Key::Delete)) {
             ctx.input_mut(|input|{input.consume_key(egui::Modifiers::NONE,key);});
             if let Some(pane_key)=pane_key {
-                let pane=&self.views[kit_id].browser.folder_browsers[&pane_key];
+                // The pane may have closed since it was last clicked.
+                let Some(pane)=self.views[kit_id].browser.folder_browsers.get(&pane_key) else{return};
                 let keys=if multiple {pane.selection.ordered_keys()}else{current.into_iter().collect()};
                 if key==egui::Key::Delete && !multiple {return;}
                 self.focus_kit(index);

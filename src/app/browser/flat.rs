@@ -735,6 +735,45 @@ mod tests {
         }
         assert_eq!(h.selected().ordered_keys(), vec![kit.key("alpha01.model")]);
     }
+    /// Alt+Up works without the browser holding focus, so it must act on the
+    /// kit being worked in, not on a pane last clicked in another kit.
+    #[test]
+    fn alt_up_acts_on_the_active_kit_not_the_last_clicked_pane() {
+        let kit_a = LooseKit::new("flat-up-kit-a", "halo3_mcc");
+        std::fs::create_dir_all(kit_a.path("a/inner")).unwrap();
+        let kit_b = LooseKit::new("flat-up-kit-b", "halo3_mcc");
+        std::fs::create_dir_all(kit_b.path("b/inner")).unwrap();
+        let mut app = app();
+        let ctx = ctx();
+        let open = |app: &mut Baboon, rel: &str| {
+            app.handle_browser_action(
+                BrowserAction::OpenFolderBrowser { rel_path: PathBuf::from(rel), label: rel.into(), open_in_new_tab: true },
+                ctx.clone(),
+            );
+            app.model.kits[app.model.active].current_pane.clone().unwrap()
+        };
+        kit_a.install(&mut app);
+        let pane_a = open(&mut app, "a/inner");
+        let a = app.model.active_kit_id();
+        app.add_kit();
+        kit_b.install(&mut app);
+        let pane_b = open(&mut app, "b/inner");
+        let b = app.model.active_kit_id();
+        // A Flat row was clicked in kit B, then work moved to kit A.
+        ctx.data_mut(|data| data.insert_temp(browser_selection_owner_id().with("pane"), (b, pane_b.clone())));
+        app.focus_kit(0);
+        let alt_up = egui::Event::Key {
+            key: egui::Key::ArrowUp,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::ALT,
+        };
+        let input = egui::RawInput { events: vec![alt_up], ..Default::default() };
+        let _ = crate::app::run_ui_test(&ctx, input, |_| app.handle_browser_selection_input(&ctx));
+        assert_eq!(app.views[b].browser.folder_browsers[&pane_b].rel_path, PathBuf::from("b/inner"), "kit B untouched");
+        assert_eq!(app.views[a].browser.folder_browsers[&pane_a].rel_path, PathBuf::from("a"), "kit A went up");
+    }
     #[test]
     fn alt_up_reselects_and_reveals_the_departed_folder_with_keyboard_focus() {
         let kit = LooseKit::new("flat-up-selection", "halo3_mcc");
