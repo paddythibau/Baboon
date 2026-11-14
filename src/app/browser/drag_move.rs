@@ -269,16 +269,24 @@ pub(super) fn tree_folder_target(ui: &Ui, rect: egui::Rect, folder: &Path) {
     };
     let writable = browser_loose_source(ui) && !operation_read_only(ui);
     if let Some(action) = drop_target(ui.ctx(), ui.painter(), ui.rect_contains_pointer(rect), rect, kit, folder, writable) {
-        let parked = Arc::new(std::sync::Mutex::new(Some(action)));
+        let parked = Arc::new(std::sync::Mutex::new(Some((kit, action))));
         ui.data_mut(|data| data.insert_temp(tree_drop_id(), parked));
     }
 }
 
-/// The Move or Copy a Tree view folder row was dropped on this frame.
-pub(in crate::app) fn take_tree_drop(ctx: &egui::Context) -> Option<BrowserAction> {
-    let parked = ctx.data_mut(|data| data.remove_temp::<Arc<std::sync::Mutex<Option<BrowserAction>>>>(tree_drop_id()))?;
+type ParkedDrop = Arc<std::sync::Mutex<Option<(KitId, BrowserAction)>>>;
+
+/// The Move or Copy a Tree view folder row of `kit` was dropped on this
+/// frame. Only that kit's tab or navigation pane collects it; another kit's
+/// leaves it alone.
+pub(in crate::app) fn take_tree_drop(ctx: &egui::Context, kit: KitId) -> Option<BrowserAction> {
+    let parked = ctx.data(|data| data.get_temp::<ParkedDrop>(tree_drop_id()))?;
     let mut parked = parked.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    parked.take()
+    if parked.as_ref().is_some_and(|(owner, _)| *owner == kit) {
+        ctx.data_mut(|data| data.remove::<ParkedDrop>(tree_drop_id()));
+        return parked.take().map(|(_, action)| action);
+    }
+    None
 }
 
 /// Somewhere a Flat view drag can't land (the navigation pane, a folder tab

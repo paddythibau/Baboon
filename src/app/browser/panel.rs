@@ -478,9 +478,11 @@ pub(in crate::app) fn draw_folder_browser_pane(
         }
         other => other,
     };
-    // A Tree view folder row that items were dropped on.
+    // A Tree view folder row that items were dropped on. Collected even when
+    // this frame has another action, so it can't linger for another consumer.
+    let dropped = super::drag_move::take_tree_drop(ui.ctx(), kit_id);
     if action.is_none() {
-        action = super::drag_move::take_tree_drop(ui.ctx());
+        action = dropped;
     }
     // Flat view takes dropped items anywhere, Tree view on its folder rows;
     // anywhere else in this tab says why. Its tab header always takes them.
@@ -754,7 +756,7 @@ pub(in crate::app) fn draw_kit_browser(
         )
     });
     super::drag_move::end_navigation_drops(ui);
-    if let Some(action) = super::drag_move::take_tree_drop(ui.ctx()) {
+    if let Some(action) = super::drag_move::take_tree_drop(ui.ctx(), kit) {
         cx.send(BrowserCommand::Action { kit, action });
     }
     // Anywhere but a folder row says where to drop instead.

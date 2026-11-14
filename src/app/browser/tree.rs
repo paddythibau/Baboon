@@ -4213,7 +4213,9 @@ mod tests {
                 pressed: false,
                 modifiers: egui::Modifiers::NONE,
             }]);
-            take_tree_drop(&ctx)
+            // Another kit's tab or navigation leaves it for its owner.
+            assert!(take_tree_drop(&ctx, KitId(2)).is_none());
+            take_tree_drop(&ctx, KitId(1))
         };
         for (folder_pane, navigation) in [(true, false), (false, true)] {
             match drop_on_row(folder_pane, navigation) {
