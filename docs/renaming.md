@@ -40,6 +40,13 @@ Invalid names, duplicate results, case-only changes and existing destination
 names block Apply. Bulk Rename never overwrites or merges existing items, and
 does not automatically suffix a conflicting result. This includes another
 selected item's current name: choose vacant names or rename in two batches.
+Swapping two names (A to B and B to A) is refused for the same reason; rename
+one to a spare name first.
+
+New names can't contain a dot, in Rename or Bulk Rename, since the part after
+it would read as a tag extension. That includes folders with dots in their
+names, and tags whose name has a dot before its extension; rename those outside
+Baboon, then fix their references.
 
 Review the preview, then choose **Rename**, or **Save All and Rename** if there
 are unsaved workspace tags. Reference checking runs before files change. The
