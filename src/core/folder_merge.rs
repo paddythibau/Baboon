@@ -399,6 +399,12 @@ impl Plan {
     }
 }
 
+/// The folder rollback journals go in, beside a kit's `tags` folder: on the
+/// same drive, so a moved or deleted original is renamed into it rather than
+/// copied, and out of reach of the system's temporary-file cleanup in case a
+/// rollback fails and its copies are all that is left.
+pub(crate) const JOURNAL_FOLDER: &str = ".baboon-journal";
+
 /// A disk-backed rollback journal, also covering reference rewrites outside the
 /// merged folder. Dropping an unfinished transaction attempts rollback.
 pub(crate) struct Transaction {
@@ -415,17 +421,34 @@ impl Transaction {
     pub fn delete_items(&mut self, roots: &[PathBuf], mut preserve: impl FnMut(&Path)->Result<(),String>) -> Result<(),String> {
         let mut items = BTreeMap::new();
         for root in roots { items.extend(tree(root,&||false)?); }
-        for (path,info) in &items { if !info.directory { self.remember(path)?; } }
+        // Read-only files refuse before anything changes.
+        for (path,info) in &items { if !info.directory && fingerprint(path)?.readonly { return Err(format!("File is read-only: {}", path.display())); } }
         for (path,info) in &items { if !info.directory { preserve(path)?; } }
-        for (path,info) in &items { if !info.directory { self.changed.insert(path.clone()); fs::remove_file(path).map_err(|e|format!("Could not delete {}: {e}",path.display()))?; } }
+        // Deleting moves each original into the journal: no second copy.
+        for (path,info) in &items { if !info.directory { self.take(path)?; } }
         let mut dirs: Vec<_> = items.into_iter().filter(|(_,info)|info.directory).map(|(path,_)|path).collect();
         dirs.sort_by_key(|path|std::cmp::Reverse(path.components().count()));
         for path in dirs { fs::remove_dir(&path).map_err(|e|e.to_string())?; self.removed_directories.push(path); }
         Ok(())
     }
+    /// A journal in the system's temporary folder, for tests and callers with
+    /// no kit.
     pub fn new() -> Result<Self, String> {
-        let directory = std::env::temp_dir().join(format!("baboon-merge-{}", uuid::Uuid::new_v4()));
-        fs::create_dir(&directory).map_err(|e| e.to_string())?;
+        Self::at(std::env::temp_dir().join(format!("baboon-merge-{}", uuid::Uuid::new_v4())))
+    }
+    /// A journal beside `tags_root` (see [`JOURNAL_FOLDER`]), or in the
+    /// temporary folder when that can't be created.
+    pub fn for_kit(tags_root: &Path) -> Result<Self, String> {
+        let Some(kit) = tags_root.parent() else { return Self::new() };
+        let folder = kit.join(JOURNAL_FOLDER);
+        match fs::create_dir_all(&folder) {
+            Ok(()) => Self::at(folder.join(uuid::Uuid::new_v4().to_string())),
+            Err(_) => Self::new(),
+        }
+    }
+    fn at(directory: PathBuf) -> Result<Self, String> {
+        fs::create_dir(&directory)
+            .map_err(|e| format!("Could not create the rollback folder {}: {e}", directory.display()))?;
         Ok(Self {
             directory,
             originals: BTreeMap::new(),
@@ -457,6 +480,24 @@ impl Transaction {
         };
         self.originals.insert(path.to_owned(), original);
         Ok(())
+    }
+    /// Remove `path`, keeping it in the journal for rollback: renamed there
+    /// (free on the same drive), or copied and deleted when that fails.
+    fn take(&mut self, path: &Path) -> Result<(), String> {
+        if !self.originals.contains_key(path) {
+            if fingerprint(path)?.readonly {
+                return Err(format!("File is read-only: {}", path.display()));
+            }
+            let backup = self.directory.join(self.originals.len().to_string());
+            if fs::rename(path, &backup).is_ok() {
+                self.originals.insert(path.to_owned(), Some(backup));
+                self.changed.insert(path.to_owned());
+                return Ok(());
+            }
+            self.remember(path)?;
+        }
+        self.changed.insert(path.to_owned());
+        fs::remove_file(path).map_err(|e| format!("Could not remove {}: {e}", path.display()))
     }
     /// Mark an external atomic reference write, after preserving its original.
     pub fn will_modify(&mut self, path: &Path) -> Result<(), String> {
@@ -521,12 +562,14 @@ impl Transaction {
     }
     pub fn remove_sources(&mut self, plan: &Plan) -> Result<(), String> {
         for item in &plan.files {
-            self.remember(&item.source)?;
+            if fingerprint(&item.source)?.readonly {
+                return Err(format!("File is read-only: {}", item.source.display()));
+            }
         }
+        // Each moved original goes into the journal rather than being copied
+        // there and deleted.
         for item in &plan.files {
-            fs::remove_file(&item.source)
-                .map_err(|e| format!("Could not remove {}: {e}", item.source.display()))?;
-            self.changed.insert(item.source.clone());
+            self.take(&item.source)?;
         }
         let mut directories = plan.source_directories.clone();
         directories.sort_by_key(|p| std::cmp::Reverse(p.components().count()));
@@ -558,7 +601,12 @@ impl Transaction {
                     .map(fs::create_dir_all)
                     .transpose()
                     .map_err(|e| e.to_string())
-                    .and_then(|_| copy_backup(backup, path))
+                    .and_then(|_| {
+                        // Renamed back when it can be. A link at `path` is
+                        // never written through: copy_backup refuses it.
+                        let link = fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink());
+                        if !link && fs::rename(backup, path).is_ok() { Ok(()) } else { copy_backup(backup, path) }
+                    })
             } else if self.owned_files.contains(path) && path.exists() {
                 fs::remove_file(path).map_err(|e| e.to_string())
             } else {
@@ -577,7 +625,7 @@ impl Transaction {
         }
         self.finished = true;
         if failed.is_empty() {
-            let _ = fs::remove_dir_all(&self.directory);
+            self.remove_directory();
             format!("{error}; changes rolled back. Recovery copies were retained.")
         } else {
             format!(
@@ -589,7 +637,16 @@ impl Transaction {
     }
     pub fn commit(mut self) {
         self.finished = true;
+        self.remove_directory();
+    }
+    /// Remove this journal, and the kit's journal folder once it is empty.
+    fn remove_directory(&self) {
         let _ = fs::remove_dir_all(&self.directory);
+        if let Some(parent) = self.directory.parent()
+            && parent.file_name().is_some_and(|name| name == JOURNAL_FOLDER)
+        {
+            let _ = fs::remove_dir(parent);
+        }
     }
 }
 impl Drop for Transaction {
@@ -634,6 +691,56 @@ mod tests {
         let result=journal.delete_items(&[tree.0.join("source"),tree.0.join("target")],|_|{preserved+=1;if preserved==2{Err("recovery unavailable".into())}else{Ok(())}});
         assert!(result.is_err());journal.rollback("failed".into());
         assert_eq!(fs::read(tree.0.join("source/a")).unwrap(),b"a");assert_eq!(fs::read(tree.0.join("target/b")).unwrap(),b"b");
+    }
+
+    /// A step after the delete fails (the browser refresh, say): every file
+    /// and folder already gone comes back, contents and times intact.
+    #[test]
+    fn a_delete_rolled_back_after_its_files_are_gone_restores_every_member() {
+        let tree = Tree::new();
+        tree.write("source/a", b"a");
+        tree.write("source/sub/b", b"b");
+        fs::create_dir_all(tree.0.join("source/empty")).unwrap();
+        let modified = fs::metadata(tree.0.join("source/sub/b")).unwrap().modified().unwrap();
+        let mut journal = Transaction::for_kit(&tree.0.join("tags")).unwrap();
+        journal.delete_items(&[tree.0.join("source")], |_| Ok(())).unwrap();
+        assert!(!tree.0.join("source").exists(), "deleted before the failure");
+        assert!(tree.0.join(JOURNAL_FOLDER).is_dir(), "the journal sits beside the tags folder");
+        let message = journal.rollback("the refresh failed".into());
+        assert!(message.contains("rolled back"), "{message}");
+        assert_eq!(fs::read(tree.0.join("source/a")).unwrap(), b"a");
+        assert_eq!(fs::read(tree.0.join("source/sub/b")).unwrap(), b"b");
+        assert_eq!(fs::metadata(tree.0.join("source/sub/b")).unwrap().modified().unwrap(), modified);
+        assert!(tree.0.join("source/empty").is_dir());
+        assert!(!tree.0.join(JOURNAL_FOLDER).exists(), "an emptied journal folder is removed");
+    }
+
+    /// A file locked partway through a delete stops it there: the files
+    /// already removed come back.
+    #[cfg(windows)]
+    #[test]
+    fn a_file_locked_partway_through_a_delete_restores_the_ones_already_removed() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let tree = Tree::new();
+        for name in ["a", "b", "c"] {
+            tree.write(&format!("source/{name}"), name.as_bytes());
+        }
+        // Shared for reading only (FILE_SHARE_READ): it can be checked and
+        // preserved, but not renamed or deleted while open.
+        let lock = fs::OpenOptions::new().read(true).share_mode(1).open(tree.0.join("source/b")).unwrap();
+        let mut journal = Transaction::for_kit(&tree.0.join("tags")).unwrap();
+        let mut preserved = Vec::new();
+        let result = journal.delete_items(&[tree.0.join("source")], |path| {
+            preserved.push(path.to_owned());
+            Ok(())
+        });
+        assert!(result.is_err(), "the locked file stops the delete");
+        assert!(!tree.0.join("source/a").exists(), "`a` went before `b` failed");
+        drop(lock);
+        journal.rollback("locked".into());
+        for name in ["a", "b", "c"] {
+            assert_eq!(fs::read(tree.0.join(format!("source/{name}"))).unwrap(), name.as_bytes(), "{name}");
+        }
     }
 
     #[test]

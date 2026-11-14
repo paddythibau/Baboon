@@ -466,7 +466,7 @@ fn run_batch(root:PathBuf,roots:Vec<(PathBuf,PathBuf)>,moving:bool,label:String,
             if same_folder {"Applying rename (Cancel unavailable)"} else if renaming {"Applying move (Cancel unavailable)"} else {"Applying folder merge (Cancel unavailable)"},
             None,
         );
-        let mut transaction = Transaction::new()?;
+        let mut transaction = Transaction::for_kit(&root)?;
         let mut recovery_paths = Vec::new();
         let mut recovery_tree = None;
         let applied = (|| {

@@ -272,13 +272,31 @@ fn move_folder_to_trash(root: &Path, relative: &Path, destination: &Path,
         Err(error) if error.kind() == std::io::ErrorKind::CrossesDevices => {},
         Err(error) => return Err(format!("Could not move {} to recovery; no files were removed: {error}", folder.display())),
     }
-    // Reserve the destination, then copy everything before removing any source
-    // bytes. A failed copy leaves the original intact and the recovery copy.
+    // Another drive: copy everything to recovery, then remove the originals
+    // through the same rollback journal as Delete Selected Items, so a file
+    // that can't be removed partway puts every removed one back.
+    send_folder_refactor_progress(tx, "Deleting folder", "Copying to the recovery folder", None);
     fs::create_dir(destination).map_err(|error| error.to_string())?;
-    copy_folder_recursive_progress(&folder, destination, "Deleting folder", tx)?;
+    for item in walkdir::WalkDir::new(&folder).follow_links(false).min_depth(1) {
+        let item = item.map_err(|error| error.to_string())?;
+        if item.file_type().is_dir() {
+            let relative = item.path().strip_prefix(&folder).map_err(|error| error.to_string())?;
+            fs::create_dir_all(destination.join(relative)).map_err(|error| error.to_string())?;
+        }
+    }
     checked_folder(root, relative)?;
-    fs::remove_dir_all(&folder).map_err(|error| format!(
-        "Recovery copy saved at {}, but the original folder could not be fully removed: {error}", destination.display()))
+    let mut journal = crate::core::folder_merge::Transaction::for_kit(root)?;
+    let removed = journal.delete_items(std::slice::from_ref(&folder), |path| {
+        let saved = destination.join(path.strip_prefix(&folder).map_err(|error| error.to_string())?);
+        crate::core::folder_merge::copy_backup(path, &saved)
+    });
+    match removed {
+        Ok(()) => {
+            journal.commit();
+            Ok(())
+        }
+        Err(error) => Err(journal.rollback(format!("Could not delete {}: {error}", folder.display()))),
+    }
 }
 
 #[cfg(test)]

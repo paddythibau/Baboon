@@ -795,7 +795,7 @@ fn delete_files(
                 progress: None,
             },
         ));
-        let mut transaction = disk::Transaction::new()?;
+        let mut transaction = disk::Transaction::for_kit(root)?;
         let result = (|| {
             transaction.delete_items(&roots, |path| {
                 let target = files.join(path.strip_prefix(root).map_err(|e| e.to_string())?);
