@@ -1129,23 +1129,44 @@ mod tests {
             let ctx = egui::Context::default();
             Baboon::configure_context(&ctx);
             let mut height = 0.0;
-            let output = crate::app::run_ui_test(&ctx, egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width + 16.0, 200.0))),
-                ..Default::default()
-            }, |ui| {
-                egui::CentralPanel::default().show(ui, |ui| {
-                    ui.set_width(width);
-                    let top = ui.cursor().top();
-                    draw_kit_banner_tile(ui, title, path, None, false);
-                    height = ui.cursor().top() - top - ui.spacing().item_spacing.y;
-                });
-            });
-            assert!((height - 88.0).abs() < 0.1, "banner height at {width}px: {height}");
-            let text: Vec<_> = output.shapes.iter().filter_map(|shape| match &shape.shape {
-                egui::Shape::Text(text) => Some(text), _ => None,
-            }).collect();
-            let heading = text.iter().find(|text| text.galley.job.text == title).unwrap();
-            let location = text.iter().find(|text| text.galley.job.text == sidebar_wrappable_path_label(path)).unwrap();
+            let output = crate::app::run_ui_test(
+                &ctx,
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(width + 16.0, 200.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::CentralPanel::default().show(ui, |ui| {
+                        ui.set_width(width);
+                        let top = ui.cursor().top();
+                        draw_kit_banner_tile(ui, title, path, None, false);
+                        height = ui.cursor().top() - top - ui.spacing().item_spacing.y;
+                    });
+                },
+            );
+            assert!(
+                (height - 88.0).abs() < 0.1,
+                "banner height at {width}px: {height}"
+            );
+            let text: Vec<_> = output
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) => Some(text),
+                    _ => None,
+                })
+                .collect();
+            let heading = text
+                .iter()
+                .find(|text| text.galley.job.text == title)
+                .unwrap();
+            let location = text
+                .iter()
+                .find(|text| text.galley.job.text == sidebar_wrappable_path_label(path))
+                .unwrap();
             assert_eq!(heading.galley.rows.len(), 1);
             assert!(location.galley.rows.len() <= 3);
             if width == 220.0 {
@@ -4985,7 +5006,12 @@ mod tests {
     fn the_content_explorer_keeps_its_height_with_long_lists() {
         let mut h = Harness::new();
         memory_kit(&mut h);
-        let entries = h.app.model.kits[h.app.model.active].source.as_ref().unwrap().entries.clone();
+        let entries = h.app.model.kits[h.app.model.active]
+            .source
+            .as_ref()
+            .unwrap()
+            .entries
+            .clone();
         h.app.dialogs.open(ContentExplorer {
             kit: active_id(&h),
             focus: entries[0].clone(),
@@ -4997,7 +5023,10 @@ mod tests {
             forward: Vec::new(),
         });
         let height = |h: &Harness| {
-            h.ctx.memory(|memory| memory.area_rect(egui::Id::unique("content_explorer"))).expect("the explorer is open").height()
+            h.ctx
+                .memory(|memory| memory.area_rect(egui::Id::unique("content_explorer")))
+                .expect("the explorer is open")
+                .height()
         };
         for _ in 0..FRAMES {
             h.frame(Vec::new());
@@ -6037,45 +6066,68 @@ mod tests {
         let kit = h.app.model.kits[0].id;
         let page = |h: &Harness| {
             let tree = &h.app.views[kit].tag_tree;
-            tree.tiles.iter().find_map(|(id, tile)|
-                matches!(tile, egui_tiles::Tile::Pane(key) if key == &keys[2])
-                    .then(|| tree.tiles.rect(*id)).flatten()).unwrap()
+            tree.tiles
+                .iter()
+                .find_map(|(id, tile)| {
+                    matches!(tile, egui_tiles::Tile::Pane(key) if key == &keys[2])
+                        .then(|| tree.tiles.rect(*id))
+                        .flatten()
+                })
+                .unwrap()
         };
         let before = page(&h);
         let browser_rect = navigation_panel_rect(&mut h);
         let width = browser_rect.width();
         let toggle = navigation_button_rect(&mut h);
-        assert!((toggle.left() - browser_rect.right() - 4.0).abs() < 1.0,
-            "the main view contributes 4px to the shared 8px gutter");
+        assert!(
+            (toggle.left() - browser_rect.right() - 4.0).abs() < 1.0,
+            "the main view contributes 4px to the shared 8px gutter"
+        );
         press_at(&mut h, toggle.center(), egui::PointerButton::Primary);
         assert!(h.app.views[kit].navigation_hidden);
         h.idle(12);
         assert!(page(&h).width() > before.width() + 250.0);
         let toggle = navigation_button_rect(&mut h);
-        assert!((toggle.left() - browser_rect.left() - 8.0).abs() < 1.0,
-            "collapsed navigation leaves an 8px left gutter");
+        assert!(
+            (toggle.left() - browser_rect.left() - 8.0).abs() < 1.0,
+            "collapsed navigation leaves an 8px left gutter"
+        );
         press_at(&mut h, toggle.center(), egui::PointerButton::Primary);
         assert!(!h.app.views[kit].navigation_hidden);
         h.idle(12);
         assert!((page(&h).width() - before.width()).abs() < 1.0);
         assert!((navigation_panel_rect(&mut h).width() - width).abs() < 1.0);
 
-        h.app.views[kit].tag_tree = egui_tiles::Tree::new_horizontal(egui::Id::unique("navigation_split"), keys.clone());
+        h.app.views[kit].tag_tree =
+            egui_tiles::Tree::new_horizontal(egui::Id::unique("navigation_split"), keys.clone());
         idle(&mut h);
         navigation_button_rect(&mut h); // The primary split keeps the toggle reachable.
         h.app.views[kit].navigation_hidden = true;
         h.app.reveal_in_browser(&keys[2]);
-        assert!(!h.app.views[kit].navigation_hidden, "Reveal in Browser reopens navigation");
+        assert!(
+            !h.app.views[kit].navigation_hidden,
+            "Reveal in Browser reopens navigation"
+        );
 
         h.app.views[kit].navigation_hidden = true;
         h.app.close_all_tabs();
-        assert!(!h.app.views[kit].navigation_hidden, "closing all tabs restores navigation");
+        assert!(
+            !h.app.views[kit].navigation_hidden,
+            "closing all tabs restores navigation"
+        );
         idle(&mut h);
-        assert!(h.ctx.read_response(egui::Id::unique(("navigation_pane_toggle", kit.0))).is_none(),
-            "the empty editor has no navigation toggle");
+        assert!(
+            h.ctx
+                .read_response(egui::Id::unique(("navigation_pane_toggle", kit.0)))
+                .is_none(),
+            "the empty editor has no navigation toggle"
+        );
         h.click("View", 0);
         h.click("Navigation Pane", 0);
-        assert!(!h.app.views[kit].navigation_hidden, "the empty editor cannot hide navigation from View");
+        assert!(
+            !h.app.views[kit].navigation_hidden,
+            "the empty editor cannot hide navigation from View"
+        );
     }
 
     #[test]
@@ -6519,68 +6571,140 @@ mod tests {
 
     #[test]
     fn folder_browser_footer_and_tab_menu_follow_its_current_folder() {
-        let mut h=Harness::new();
-        fixture::install_kit(&mut h.app,fixture::synthetic_entries(2,1,1));
-        h.app.handle_browser_action(BrowserAction::OpenFolderBrowser {rel_path:PathBuf::new(),label:"Tags".into(),open_in_new_tab:true},h.ctx.clone());
+        let mut h = Harness::new();
+        fixture::install_kit(&mut h.app, fixture::synthetic_entries(2, 1, 1));
+        h.app.handle_browser_action(
+            BrowserAction::OpenFolderBrowser {
+                rel_path: PathBuf::new(),
+                label: "Tags".into(),
+                open_in_new_tab: true,
+            },
+            h.ctx.clone(),
+        );
         idle(&mut h);
-        let kit=h.app.model.active_kit_id();
-        let key=h.app.model.kits[0].current_pane.clone().unwrap();
-        let selected=crate::app::browser::folder_pane_key(Path::new("folder_00"));
-        h.app.views[kit].browser.folder_browsers.get_mut(&key).unwrap().selection.keys.insert(selected);
+        let kit = h.app.model.active_kit_id();
+        let key = h.app.model.kits[0].current_pane.clone().unwrap();
+        let selected = crate::app::browser::folder_pane_key(Path::new("folder_00"));
+        h.app.views[kit]
+            .browser
+            .folder_browsers
+            .get_mut(&key)
+            .unwrap()
+            .selection
+            .keys
+            .insert(selected);
         idle(&mut h);
-        let footers:Vec<_>=h.painted_rects.iter().filter(|(text,_)|text=="2 items · 1 folder selected").collect();
-        assert_eq!(footers.len(),1,"the count appears only inside this browser");
-        assert!(footers[0].1.bottom()<h.screen.y-20.0,"footer remains above global status");
-        let about_at=egui::pos2(footers[0].1.left()-20.0,footers[0].1.center().y);
-        press_at(&mut h,about_at,egui::PointerButton::Primary);
+        let footers: Vec<_> = h
+            .painted_rects
+            .iter()
+            .filter(|(text, _)| text == "2 items · 1 folder selected")
+            .collect();
+        assert_eq!(
+            footers.len(),
+            1,
+            "the count appears only inside this browser"
+        );
+        assert!(
+            footers[0].1.bottom() < h.screen.y - 20.0,
+            "footer remains above global status"
+        );
+        let about_at = egui::pos2(footers[0].1.left() - 20.0, footers[0].1.center().y);
+        press_at(&mut h, about_at, egui::PointerButton::Primary);
         idle(&mut h);
-        let help=h.app.dialogs.get::<crate::app::help::HelpWindow>().expect("footer About opens Help");
-        assert_eq!(help.doc_section.as_deref(),Some(crate::app::help::FOLDER_BROWSER_HELP_SECTION));
+        let help = h
+            .app
+            .dialogs
+            .get::<crate::app::help::HelpWindow>()
+            .expect("footer About opens Help");
+        assert_eq!(
+            help.doc_section.as_deref(),
+            Some(crate::app::help::FOLDER_BROWSER_HELP_SECTION)
+        );
         h.app.dialogs.close::<crate::app::help::HelpWindow>();
-        h.app.views[kit].browser.folder_browsers.get_mut(&key).unwrap().filter="folder_00".into();
-        h.app.views[kit].browser.folder_browsers.get_mut(&key).unwrap().search_scope.folders=true;
+        h.app.views[kit]
+            .browser
+            .folder_browsers
+            .get_mut(&key)
+            .unwrap()
+            .filter = "folder_00".into();
+        h.app.views[kit]
+            .browser
+            .folder_browsers
+            .get_mut(&key)
+            .unwrap()
+            .search_scope
+            .folders = true;
         idle(&mut h);
-        assert!(h.painted.iter().any(|text|text.starts_with("1 of 2 items · ")),"filtered footer keeps the total: {:?}",h.painted);
-        let pane=h.app.views[kit].browser.folder_browsers.get_mut(&key).unwrap();
-        navigate_folder_browser(pane,PathBuf::from("folder_01/sub_00"),"sub_00".into());
-        h.app.views[kit].navigation_hidden=true;
+        assert!(
+            h.painted
+                .iter()
+                .any(|text| text.starts_with("1 of 2 items · ")),
+            "filtered footer keeps the total: {:?}",
+            h.painted
+        );
+        let pane = h.app.views[kit]
+            .browser
+            .folder_browsers
+            .get_mut(&key)
+            .unwrap();
+        navigate_folder_browser(pane, PathBuf::from("folder_01/sub_00"), "sub_00".into());
+        h.app.views[kit].navigation_hidden = true;
         idle(&mut h);
-        press_tab(&mut h,"sub_00",egui::PointerButton::Secondary);
-        for label in ["Reveal in Browser",crate::app::browser::actions::folder_opener_label(),"Close All","Close All Other Tabs"] {
-            assert!(h.painted.iter().any(|text|text==label),"missing tab action {label}: {:?}",h.painted);
+        press_tab(&mut h, "sub_00", egui::PointerButton::Secondary);
+        for label in [
+            "Reveal in Browser",
+            crate::app::browser::actions::folder_opener_label(),
+            "Close All",
+            "Close All Other Tabs",
+        ] {
+            assert!(
+                h.painted.iter().any(|text| text == label),
+                "missing tab action {label}: {:?}",
+                h.painted
+            );
         }
-        h.click("Reveal in Browser",0);
+        h.click("Reveal in Browser", 0);
         assert!(!h.app.views[kit].navigation_hidden);
         idle(&mut h);
-        assert_eq!(h.app.views[kit].browser.mode,BrowserMode::Folders);
-        assert!(h.painted.iter().any(|text|text=="folder_01"));
+        assert_eq!(h.app.views[kit].browser.mode, BrowserMode::Folders);
+        assert!(h.painted.iter().any(|text| text == "folder_01"));
     }
 
     #[test]
     fn tab_menu_closes_only_the_clicked_split_in_its_workspace() {
-        for action in ["Close Tab","Close All","Close All Other Tabs"] {
-            let (mut h,keys)=three_tabs();
-            let kit=h.app.model.active_kit_id();
-            let mut tiles=egui_tiles::Tiles::default();
-            let panes:Vec<_>=keys.iter().map(|key|tiles.insert_pane(key.clone())).collect();
-            let left=tiles.insert_tab_tile(panes[..2].to_vec());
-            let right=tiles.insert_tab_tile(vec![panes[2]]);
-            let root=tiles.insert_horizontal_tile(vec![left,right]);
-            h.app.views[kit].tag_tree=egui_tiles::Tree::new(egui::Id::unique(("group-close",action)),root,tiles);
-            let other=h.app.add_kit();
+        for action in ["Close Tab", "Close All", "Close All Other Tabs"] {
+            let (mut h, keys) = three_tabs();
+            let kit = h.app.model.active_kit_id();
+            let mut tiles = egui_tiles::Tiles::default();
+            let panes: Vec<_> = keys
+                .iter()
+                .map(|key| tiles.insert_pane(key.clone()))
+                .collect();
+            let left = tiles.insert_tab_tile(panes[..2].to_vec());
+            let right = tiles.insert_tab_tile(vec![panes[2]]);
+            let root = tiles.insert_horizontal_tile(vec![left, right]);
+            h.app.views[kit].tag_tree =
+                egui_tiles::Tree::new(egui::Id::unique(("group-close", action)), root, tiles);
+            let other = h.app.add_kit();
             h.app.kit_and_view(1).open_tag_pane(&keys[0]);
             h.app.focus_kit(0);
             h.app.kit_and_view(0).focus_pane(keys[0].clone());
             idle(&mut h);
-            press_tab(&mut h,"tag_000.biped",egui::PointerButton::Secondary);
-            for label in ["Close Tab","Close All","Close All Other Tabs"] {assert!(h.painted.iter().any(|text|text==label));}
-            h.click(action,0);idle(&mut h);
-            let open=&h.app.model.kits[0].open_tabs;
-            assert!(open.contains(&keys[2]),"{action} closed the other split");
-            assert_eq!(open.contains(&keys[0]),action=="Close All Other Tabs");
-            assert_eq!(open.contains(&keys[1]),action=="Close Tab");
-            assert_eq!(h.app.model.kits[1].id,other);
-            assert!(h.app.model.kits[1].open_tabs.contains(&keys[0]),"{action} touched another workspace");
+            press_tab(&mut h, "tag_000.biped", egui::PointerButton::Secondary);
+            for label in ["Close Tab", "Close All", "Close All Other Tabs"] {
+                assert!(h.painted.iter().any(|text| text == label));
+            }
+            h.click(action, 0);
+            idle(&mut h);
+            let open = &h.app.model.kits[0].open_tabs;
+            assert!(open.contains(&keys[2]), "{action} closed the other split");
+            assert_eq!(open.contains(&keys[0]), action == "Close All Other Tabs");
+            assert_eq!(open.contains(&keys[1]), action == "Close Tab");
+            assert_eq!(h.app.model.kits[1].id, other);
+            assert!(
+                h.app.model.kits[1].open_tabs.contains(&keys[0]),
+                "{action} touched another workspace"
+            );
         }
     }
 

@@ -1907,7 +1907,8 @@ mod tests {
                 { "id": "0b5e2a7c-3a43-4f37-8f2e-6a9d2c1b4e5f", "name": "Halo Infinite", "game": "haloinfinite", "root": "/kits/hi" },
             ],
         });
-        let migrated = editing_kit_migration(&stored, &prefs_from_value(&stored)).expect("the first launch upgrades");
+        let migrated = editing_kit_migration(&stored, &prefs_from_value(&stored))
+            .expect("the first launch upgrades");
         assert!(
             editing_kit_migration(&migrated, &prefs_from_value(&migrated)).is_none(),
             "the next launch has nothing to write"

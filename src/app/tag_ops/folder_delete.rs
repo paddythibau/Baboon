@@ -415,24 +415,51 @@ mod tests {
         let root = kit.root.parent().unwrap().to_path_buf();
         let custom = root.join("deleted-tags");
         let id = uuid::Uuid::new_v4().to_string();
-        app.model.prefs.custom_editing_kit_profiles.push(CustomEditingKitProfile {
-            recovery: crate::core::recovery::RecoveryLocation { name: "test_kit".into(), folder: Some("deleted-tags".into()) },
-            id: id.clone(), name: "Test Kit".into(), game: "halo3_mcc".into(), root,
-            read_only: false, git_tracked: false, icon: None, tags_folder: None, data_folder: None,
+        app.model
+            .prefs
+            .custom_editing_kit_profiles
+            .push(CustomEditingKitProfile {
+                recovery: crate::core::recovery::RecoveryLocation {
+                    name: "test_kit".into(),
+                    folder: Some("deleted-tags".into()),
+                },
+                id: id.clone(),
+                name: "Test Kit".into(),
+                game: "halo3_mcc".into(),
+                root,
+                read_only: false,
+                git_tracked: false,
+                icon: None,
+                tags_folder: None,
+                data_folder: None,
+            });
+        app.model.kits[0].profile = Some(EditingKitProfileIdentity {
+            id: id.clone(),
+            name: "Test Kit".into(),
         });
-        app.model.kits[0].profile = Some(EditingKitProfileIdentity { id: id.clone(), name: "Test Kit".into() });
         fs::write(kit.root.join("doomed/readme.txt"), b"non-tag content").unwrap();
         fs::create_dir_all(kit.root.join("doomed/empty")).unwrap();
         app.open_delete_folder("doomed".into(), ctx());
         app.begin_delete_folder(ctx());
-        crate::app::loose_fixture::pump_until(&mut app, "custom folder recovery", |app| app.tag_ops.folder_refactor.is_none());
+        crate::app::loose_fixture::pump_until(&mut app, "custom folder recovery", |app| {
+            app.tag_ops.folder_refactor.is_none()
+        });
         assert!(!kit.root.join("doomed").exists(), "{}", app.model.status);
         let destination = PathBuf::from(app.model.status.split(" — moved to ").nth(1).unwrap());
         assert!(destination.starts_with(custom.canonicalize().unwrap()));
-        assert_eq!(fs::read(destination.join("readme.txt")).unwrap(), b"non-tag content");
+        assert_eq!(
+            fs::read(destination.join("readme.txt")).unwrap(),
+            b"non-tag content"
+        );
         assert!(destination.join("empty").is_dir());
-        let batch = destination.ancestors().find(|p| p.file_name().is_some_and(|n| n == "files")).unwrap().parent().unwrap();
-        let info: serde_json::Value = serde_json::from_slice(&fs::read(batch.join("recovery-info.json")).unwrap()).unwrap();
+        let batch = destination
+            .ancestors()
+            .find(|p| p.file_name().is_some_and(|n| n == "files"))
+            .unwrap()
+            .parent()
+            .unwrap();
+        let info: serde_json::Value =
+            serde_json::from_slice(&fs::read(batch.join("recovery-info.json")).unwrap()).unwrap();
         assert_eq!(info["origin"]["kit_id"], id);
         assert_eq!(info["operation"], "delete folder");
     }

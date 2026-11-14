@@ -729,9 +729,14 @@ mod tests {
         let destination = app.delete_loose_tag(&entry, &raw).unwrap();
         assert!(!raw.exists());
         assert_eq!(destination.file_name().unwrap(), "single.hlmt");
-        assert!(destination.ancestors().any(|p| p.file_name().is_some_and(|n| n == "misc")));
+        assert!(
+            destination
+                .ancestors()
+                .any(|p| p.file_name().is_some_and(|n| n == "misc"))
+        );
         let batch = destination.parent().unwrap().parent().unwrap();
-        let info: serde_json::Value = serde_json::from_slice(&fs::read(batch.join("recovery-info.json")).unwrap()).unwrap();
+        let info: serde_json::Value =
+            serde_json::from_slice(&fs::read(batch.join("recovery-info.json")).unwrap()).unwrap();
         assert_eq!(info["origin"]["source"], "single_file");
         fs::remove_dir_all(batch).unwrap();
     }

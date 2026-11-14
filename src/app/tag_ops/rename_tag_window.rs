@@ -22,10 +22,19 @@ fn show_rename(state: &mut RenameTagState, cx: &Ctx) -> bool {
     let ctx = cx.egui;
     let mut open = true;
     let mut response = Default::default();
-    let source = cx.model.kit_index(state.kit).and_then(|index| cx.model.kits[index].source.as_ref());
+    let source = cx
+        .model
+        .kit_index(state.kit)
+        .and_then(|index| cx.model.kits[index].source.as_ref());
     let game = source.and_then(|source| source.source.game());
     let group = source.and_then(|source| source.names.group_tag_for(&state.extension));
-    let current = tag_path::name(state.old_display.rsplit_once('.').map_or(state.old_display.as_str(), |(stem, _)| stem)).to_owned();
+    let current = tag_path::name(
+        state
+            .old_display
+            .rsplit_once('.')
+            .map_or(state.old_display.as_str(), |(stem, _)| stem),
+    )
+    .to_owned();
     // A Campaign Evolved container is copied or rewritten rather than having
     // its referrers fixed: say what happens instead of listing references.
     let notes = if state.is_new_container {
@@ -41,8 +50,15 @@ fn show_rename(state: &mut RenameTagState, cx: &Ctx) -> bool {
         None
     };
     let references = (!state.is_container).then(|| {
-        let rows = source.map(|source| crate::app::browser::bulk_rename::referrer_rows(&state.referrers, &source.names)).unwrap_or_default();
-        let notes = state.referrers_unavailable.then(|| "Reference index unavailable. References are still found and fixed when renaming.".to_owned());
+        let rows = source
+            .map(|source| {
+                crate::app::browser::bulk_rename::referrer_rows(&state.referrers, &source.names)
+            })
+            .unwrap_or_default();
+        let notes = state.referrers_unavailable.then(|| {
+            "Reference index unavailable. References are still found and fixed when renaming."
+                .to_owned()
+        });
         (rows, notes.into_iter().collect())
     });
     // Scripts name the tag by path: listed with the references.
@@ -63,26 +79,31 @@ fn show_rename(state: &mut RenameTagState, cx: &Ctx) -> bool {
         .default_width(window_width(ctx, 480.0))
         .resizable(false)
         .show(ctx, |ui| {
-            response = super::single_rename::draw_single_rename(cx, ui, &mut open, super::single_rename::SingleRename {
-                input: &mut state.new_path_input,
-                focus: &mut state.focus_input,
-                field_id: egui::Id::unique("rename_tag_name"),
-                current: &current,
-                location: state.old_display.clone(),
-                extension: Some(&state.extension),
-                icon: crate::app::browser::bulk_rename::RenameIcon::Tag(group),
-                game,
-                noun: "Tag names",
-                error: None,
-                notes,
-                references,
-                scripts,
-                apply_hover: if state.is_new_container {
-                    "Rename this unsaved tag (nothing is written yet)"
-                } else {
-                    "Rename the file and fix every reference"
+            response = super::single_rename::draw_single_rename(
+                cx,
+                ui,
+                &mut open,
+                super::single_rename::SingleRename {
+                    input: &mut state.new_path_input,
+                    focus: &mut state.focus_input,
+                    field_id: egui::Id::unique("rename_tag_name"),
+                    current: &current,
+                    location: state.old_display.clone(),
+                    extension: Some(&state.extension),
+                    icon: crate::app::browser::bulk_rename::RenameIcon::Tag(group),
+                    game,
+                    noun: "Tag names",
+                    error: None,
+                    notes,
+                    references,
+                    scripts,
+                    apply_hover: if state.is_new_container {
+                        "Rename this unsaved tag (nothing is written yet)"
+                    } else {
+                        "Rename the file and fix every reference"
+                    },
                 },
-            });
+            );
         });
     // Left open for the apply, which closes it once it succeeds.
     if response.apply {

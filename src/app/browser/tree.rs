@@ -1437,7 +1437,14 @@ fn draw_tree_node_block(
 
 /// Shared by hierarchical and flat folder rows; callers supply a node whose
 /// entry indices address the supplied list.
-pub(super) fn draw_folder_context_menu_contents(ui: &mut Ui, node: &TagTreeNode, entries: &[TagEntry], groups_mode: bool, is_container: bool, favorite_keys: Option<&HashSet<String>>) -> Option<BrowserAction> {
+pub(super) fn draw_folder_context_menu_contents(
+    ui: &mut Ui,
+    node: &TagTreeNode,
+    entries: &[TagEntry],
+    groups_mode: bool,
+    is_container: bool,
+    favorite_keys: Option<&HashSet<String>>,
+) -> Option<BrowserAction> {
     let mut clicked = None;
     style_tag_context_menu(ui);
     if !groups_mode && favorite_keys.is_some() {
@@ -4155,7 +4162,9 @@ mod tests {
     /// (a picker, say) takes nothing.
     #[test]
     fn a_tree_folder_row_in_a_folder_tab_or_the_navigation_takes_dropped_items() {
-        use super::super::drag_move::{DraggedItem, DraggedItems, begin_navigation_drops, end_navigation_drops, take_tree_drop};
+        use super::super::drag_move::{
+            DraggedItem, DraggedItems, begin_navigation_drops, end_navigation_drops, take_tree_drop,
+        };
         let drop_on_row = |folder_pane: bool, navigation: bool| {
             let ctx = egui::Context::default();
             let row = std::cell::Cell::new(egui::Rect::NOTHING);
@@ -4163,7 +4172,10 @@ mod tests {
                 let _ = crate::app::run_ui_test(
                     &ctx,
                     egui::RawInput {
-                        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(400.0, 300.0))),
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            Vec2::new(400.0, 300.0),
+                        )),
                         events,
                         ..Default::default()
                     },
@@ -4173,15 +4185,28 @@ mod tests {
                             set_browser_loose_source(ui, true);
                             set_operation_entries(ui, KitId(1), 1, &[], false, true);
                             ui.data_mut(|data| {
-                                data.insert_temp(browser_selection_owner_id().with("drawing"), (KitId(1), "pane".to_owned()))
+                                data.insert_temp(
+                                    browser_selection_owner_id().with("drawing"),
+                                    (KitId(1), "pane".to_owned()),
+                                )
                             });
                             if navigation {
                                 begin_navigation_drops(ui, KitId(1));
                             }
-                            row.set(show_folder_tree_header(
-                                ui, "dest", "dest", text_dark(), false, false, false, Some(Path::new("objects/dest")), |_| {},
-                            )
-                            .rect);
+                            row.set(
+                                show_folder_tree_header(
+                                    ui,
+                                    "dest",
+                                    "dest",
+                                    text_dark(),
+                                    false,
+                                    false,
+                                    false,
+                                    Some(Path::new("objects/dest")),
+                                    |_| {},
+                                )
+                                .rect,
+                            );
                             end_navigation_drops(ui);
                         });
                     },
@@ -4193,7 +4218,11 @@ mod tests {
                 DraggedItems {
                     kit: KitId(1),
                     pane: "pane".into(),
-                    items: vec![DraggedItem { key: "k".into(), path: r"objects\a.model".into(), folder: false }],
+                    items: vec![DraggedItem {
+                        key: "k".into(),
+                        path: r"objects\a.model".into(),
+                        folder: false,
+                    }],
                     tag: None,
                 },
             );
@@ -4211,13 +4240,21 @@ mod tests {
         };
         for (folder_pane, navigation) in [(true, false), (false, true)] {
             match drop_on_row(folder_pane, navigation) {
-                Some(BrowserAction::DropItems { keys, copy, folder, .. }) => {
-                    assert_eq!((keys, copy, folder), (vec!["k".to_owned()], false, PathBuf::from("objects/dest")));
+                Some(BrowserAction::DropItems {
+                    keys, copy, folder, ..
+                }) => {
+                    assert_eq!(
+                        (keys, copy, folder),
+                        (vec!["k".to_owned()], false, PathBuf::from("objects/dest"))
+                    );
                 }
                 _ => panic!("the folder row took no drop (folder tab: {folder_pane})"),
             }
         }
-        assert!(drop_on_row(false, false).is_none(), "a tree elsewhere takes nothing");
+        assert!(
+            drop_on_row(false, false).is_none(),
+            "a tree elsewhere takes nothing"
+        );
     }
 
     #[test]

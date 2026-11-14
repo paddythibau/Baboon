@@ -515,57 +515,140 @@ pub(in crate::app) fn draw_folder_browser_pane(
 }
 
 /// Selection belongs to the browser container, including inactive split panes.
-fn draw_browser_footer(cx: &Ctx, ui: &mut Ui, pane: &FolderBrowserState, pane_key: &str, source: &LoadedSourceData, generation: u64) {
+fn draw_browser_footer(
+    cx: &Ctx,
+    ui: &mut Ui,
+    pane: &FolderBrowserState,
+    pane_key: &str,
+    source: &LoadedSourceData,
+    generation: u64,
+) {
     let multi = pane.mode == BrowserMode::Flat || pane.assets_view;
     let (tags, folders) = if multi {
-        let folders = pane.selection.keys.iter().filter(|key| is_folder_pane_key(key)).count();
+        let folders = pane
+            .selection
+            .keys
+            .iter()
+            .filter(|key| is_folder_pane_key(key))
+            .count();
         (pane.selection.keys.len() - folders, folders)
     } else {
         match browser_selected_tag(ui) {
-            Some(key) if is_folder_pane_key(&key) => (0, 1), Some(_) => (1, 0), None => (0, 0),
+            Some(key) if is_folder_pane_key(&key) => (0, 1),
+            Some(_) => (1, 0),
+            None => (0, 0),
         }
     };
     let total = if pane.assets_view {
-        thumbnail_library::asset_grid_order(ui, &format!("footer:{:?}:{pane_key}", ui.scope_id()), pane, source.full_entry_set(), Some(generation)).len()
+        thumbnail_library::asset_grid_order(
+            ui,
+            &format!("footer:{:?}:{pane_key}", ui.scope_id()),
+            pane,
+            source.full_entry_set(),
+            Some(generation),
+        )
+        .len()
     } else {
         // Listing totals are independent of search and selection. Cache the full
         // entry walk so large editing kits pay for it only when contents change.
         let entries = source.full_entry_set();
-        let signature = (generation, entries.as_ptr() as usize, entries.len(), pane.rel_path.clone(), flat::immediate_folders(pane, source).len());
+        let signature = (
+            generation,
+            entries.as_ptr() as usize,
+            entries.len(),
+            pane.rel_path.clone(),
+            flat::immediate_folders(pane, source).len(),
+        );
         let id = ui.make_persistent_id(("folder_item_total", pane_key));
-        let cached = ui.data(|data|data.get_temp::<((u64,usize,usize,PathBuf,usize),usize)>(id));
-        if let Some((_,count)) = cached.filter(|(key,_)| key == &signature) {count} else {
-            let parent=tag_path::relative_tag_path(&pane.rel_path);
-            let count=entries.iter().filter(|entry|tag_path::parent(&entry.display_path).unwrap_or("").eq_ignore_ascii_case(&parent)).count()+flat::immediate_folders(pane, source).len();
-            ui.data_mut(|data|data.insert_temp(id,(signature,count)));count
+        let cached =
+            ui.data(|data| data.get_temp::<((u64, usize, usize, PathBuf, usize), usize)>(id));
+        if let Some((_, count)) = cached.filter(|(key, _)| key == &signature) {
+            count
+        } else {
+            let parent = tag_path::relative_tag_path(&pane.rel_path);
+            let count = entries
+                .iter()
+                .filter(|entry| {
+                    tag_path::parent(&entry.display_path)
+                        .unwrap_or("")
+                        .eq_ignore_ascii_case(&parent)
+                })
+                .count()
+                + flat::immediate_folders(pane, source).len();
+            ui.data_mut(|data| data.insert_temp(id, (signature, count)));
+            count
         }
     };
-    let shown = if multi {pane.selection.rows.len().min(total)} else {total};
-    let noun = if total == 1 {"item"} else {"items"};
-    let total_label = if shown == total {format!("{total} {noun}")} else {format!("{shown} of {total} {noun}")};
-    let selection = match (tags,folders) {
-        (0,0)=>"0 selected".into(),
-        (tags,0)=>format!("{tags} {} selected", if tags==1 {"tag"} else {"tags"}),
-        (0,folders)=>format!("{folders} {} selected", if folders==1 {"folder"} else {"folders"}),
-        (tags,folders)=>format!("{tags} {} and {folders} {} selected",if tags==1 {"tag"}else{"tags"},if folders==1 {"folder"}else{"folders"}),
+    let shown = if multi {
+        pane.selection.rows.len().min(total)
+    } else {
+        total
+    };
+    let noun = if total == 1 { "item" } else { "items" };
+    let total_label = if shown == total {
+        format!("{total} {noun}")
+    } else {
+        format!("{shown} of {total} {noun}")
+    };
+    let selection = match (tags, folders) {
+        (0, 0) => "0 selected".into(),
+        (tags, 0) => format!("{tags} {} selected", if tags == 1 { "tag" } else { "tags" }),
+        (0, folders) => format!(
+            "{folders} {} selected",
+            if folders == 1 { "folder" } else { "folders" }
+        ),
+        (tags, folders) => format!(
+            "{tags} {} and {folders} {} selected",
+            if tags == 1 { "tag" } else { "tags" },
+            if folders == 1 { "folder" } else { "folders" }
+        ),
     };
     let background = ui.painter().add(egui::Shape::Noop);
-    let footer = egui::Frame::NONE.inner_margin(6).show(ui,|ui| {
+    let footer = egui::Frame::NONE.inner_margin(6).show(ui, |ui| {
         ui.set_min_width(ui.available_width());
         ui.horizontal(|ui| {
             ui.set_height(BUTTON_HEIGHT);
-            if icon_button(ui, ButtonIcon::About, "About Folder Browser", true, text_dark()).clicked() {
-                cx.send(crate::app::help::HelpCommand::ShowDocSection(crate::app::help::FOLDER_BROWSER_HELP_SECTION));
+            if icon_button(
+                ui,
+                ButtonIcon::About,
+                "About Folder Browser",
+                true,
+                text_dark(),
+            )
+            .clicked()
+            {
+                cx.send(crate::app::help::HelpCommand::ShowDocSection(
+                    crate::app::help::FOLDER_BROWSER_HELP_SECTION,
+                ));
             }
-            let mut counts=egui::text::LayoutJob::default();
-            RichText::new(format!("{total_label} · ")).color(subtle_dark()).append_to(&mut counts,ui.style(),egui::FontSelection::Default,egui::Align::Center);
-            RichText::new(&selection).color(text_dark()).append_to(&mut counts,ui.style(),egui::FontSelection::Default,egui::Align::Center);
-            ui.add(egui::Label::new(counts).truncate()).on_hover_text(format!("{total_label} · {selection}"));
+            let mut counts = egui::text::LayoutJob::default();
+            RichText::new(format!("{total_label} · "))
+                .color(subtle_dark())
+                .append_to(
+                    &mut counts,
+                    ui.style(),
+                    egui::FontSelection::Default,
+                    egui::Align::Center,
+                );
+            RichText::new(&selection).color(text_dark()).append_to(
+                &mut counts,
+                ui.style(),
+                egui::FontSelection::Default,
+                egui::Align::Center,
+            );
+            ui.add(egui::Label::new(counts).truncate())
+                .on_hover_text(format!("{total_label} · {selection}"));
         });
     });
-    paint_frame_band(ui,background,footer.response.rect,
+    paint_frame_band(
+        ui,
+        background,
+        footer.response.rect,
         egui::CornerRadius::same(crate::app::editor::fields::FOUNDATION_CONTAINER_RADIUS as u8),
-        Stroke::new(1.0,foundation_block_edge()),foundation_block_bar(),false);
+        Stroke::new(1.0, foundation_block_edge()),
+        foundation_block_bar(),
+        false,
+    );
 }
 
 /// What a folder pane's tree reads besides the pane itself.

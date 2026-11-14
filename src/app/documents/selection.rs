@@ -118,7 +118,15 @@ mod tests {
         app.kit_and_view(0).open_tag_pane(&key);
         app.model.kits[0].tag_load_epoch = 1;
         app.model.kits[0].loading_tags.insert(key.clone());
-        app.apply_worker_message(WorkerMessage::TagLoaded { kit, epoch: 0, key: key.clone(), result: Err("obsolete read".into()) }, &egui::Context::default());
+        app.apply_worker_message(
+            WorkerMessage::TagLoaded {
+                kit,
+                epoch: 0,
+                key: key.clone(),
+                result: Err("obsolete read".into()),
+            },
+            &egui::Context::default(),
+        );
         assert!(app.model.kits[0].loading_tags.contains(&key));
         assert!(app.kit_tools.terminal.lines.is_empty());
     }

@@ -232,17 +232,46 @@ pub(super) fn finish_browser_navigation(ui: &Ui) {
     }
 }
 
-fn type_selection(nav:&mut Navigation,prefix:&str,cycle:bool)->Option<NavigationAction> {
-    if nav.rows.is_empty(){return None;}
-    let current=nav.rows.iter().position(|(_,id)|Some(*id)==nav.owner);
-    let start=if cycle {current.map(|index|(index+1)%nav.rows.len()).unwrap_or(0)}else{current.unwrap_or(0)};
-    for offset in 0..nav.rows.len() {let row=&nav.rows[(start+offset)%nav.rows.len()];
-        let name=nav.names.get(&row.0).map(String::as_str).unwrap_or_else(||tag_path::name(&row.0));
-        if name.to_lowercase().starts_with(prefix) {nav.owner=Some(row.1);nav.target=Some(row.clone());return Some(NavigationAction::Select(row.0.clone(),row.1));}
-    } None
+fn type_selection(nav: &mut Navigation, prefix: &str, cycle: bool) -> Option<NavigationAction> {
+    if nav.rows.is_empty() {
+        return None;
+    }
+    let current = nav.rows.iter().position(|(_, id)| Some(*id) == nav.owner);
+    let start = if cycle {
+        current
+            .map(|index| (index + 1) % nav.rows.len())
+            .unwrap_or(0)
+    } else {
+        current.unwrap_or(0)
+    };
+    for offset in 0..nav.rows.len() {
+        let row = &nav.rows[(start + offset) % nav.rows.len()];
+        let name = nav
+            .names
+            .get(&row.0)
+            .map(String::as_str)
+            .unwrap_or_else(|| tag_path::name(&row.0));
+        if name.to_lowercase().starts_with(prefix) {
+            nav.owner = Some(row.1);
+            nav.target = Some(row.clone());
+            return Some(NavigationAction::Select(row.0.clone(), row.1));
+        }
+    }
+    None
 }
-pub(super) fn register_browser_name(ui:&Ui,key:&str,name:&str) {state(ui.ctx(),|nav|{if nav.collecting {nav.names.insert(key.into(),name.into());}});}
-pub(super) fn browser_navigation_extend(ctx:&egui::Context,extend:bool) {state(ctx,|nav|{nav.extending=extend;nav.prefix.clear();});}
+pub(super) fn register_browser_name(ui: &Ui, key: &str, name: &str) {
+    state(ui.ctx(), |nav| {
+        if nav.collecting {
+            nav.names.insert(key.into(), name.into());
+        }
+    });
+}
+pub(super) fn browser_navigation_extend(ctx: &egui::Context, extend: bool) {
+    state(ctx, |nav| {
+        nav.extending = extend;
+        nav.prefix.clear();
+    });
+}
 pub(super) fn browser_navigation_extending(ctx:&egui::Context)->bool {state(ctx,|nav|nav.extending)}
 pub(super) fn type_browser_selection(ctx:&egui::Context,text:&str)->Option<(String,egui::Id)> {
     let now=ctx.input(|input|input.time);

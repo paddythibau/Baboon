@@ -659,39 +659,75 @@ pub(in crate::app) fn prepare_tag_refactor_index_cancellable(
     tx: &Sender<WorkerMessage>,
     cancelled: &(impl Fn() -> bool + Sync),
 ) -> Result<(Vec<TagEntry>, ReverseDependencyIndex, RefactorIndexChanges), String> {
-    if cancelled() { return Err("Folder operation cancelled; no files changed".into()); }
+    if cancelled() {
+        return Err("Folder operation cancelled; no files changed".into());
+    }
     send_folder_refactor_progress(tx, label, "Checking tag index for changes", None);
-    let mut index = existing.or_else(|| game.and_then(|game|
-        crate::core::source::load_reverse_dependency_index(game.as_str(), root))).unwrap_or_default();
+    let mut index = existing
+        .or_else(|| {
+            game.and_then(|game| {
+                crate::core::source::load_reverse_dependency_index(game.as_str(), root)
+            })
+        })
+        .unwrap_or_default();
     let mut changes = RefactorIndexChanges::default();
     let mut entries = if let Some(game) = game {
-        let refresh = crate::core::source::refresh_entry_index_with_progress(game.as_str(), root, names, &|progress| {
-            if cancelled() { return Err(anyhow::anyhow!("Folder operation cancelled; no files changed")); }
-            if progress.processed % 100 == 0 || progress.processed == progress.total {
-                let phase = if progress.total == 0 {
-                    format!("Finding tag files: {} found", progress.processed)
-                } else {
-                    format!("Checking tag index: {}/{} files", progress.processed, progress.total)
-                };
-                send_folder_refactor_progress(tx, label, &phase, (progress.total > 0).then(|| progress.processed as f32 / progress.total as f32));
-            }
-            Ok(())
-        })
-            .map_err(|error| format!("Could not verify the tag index: {error}"))?;
-        changes.touched.extend(refresh.touched.iter().map(|entry| entry.key.clone()));
+        let refresh = crate::core::source::refresh_entry_index_with_progress(
+            game.as_str(),
+            root,
+            names,
+            &|progress| {
+                if cancelled() {
+                    return Err(anyhow::anyhow!(
+                        "Folder operation cancelled; no files changed"
+                    ));
+                }
+                if progress.processed % 100 == 0 || progress.processed == progress.total {
+                    let phase = if progress.total == 0 {
+                        format!("Finding tag files: {} found", progress.processed)
+                    } else {
+                        format!(
+                            "Checking tag index: {}/{} files",
+                            progress.processed, progress.total
+                        )
+                    };
+                    send_folder_refactor_progress(
+                        tx,
+                        label,
+                        &phase,
+                        (progress.total > 0)
+                            .then(|| progress.processed as f32 / progress.total as f32),
+                    );
+                }
+                Ok(())
+            },
+        )
+        .map_err(|error| format!("Could not verify the tag index: {error}"))?;
+        changes
+            .touched
+            .extend(refresh.touched.iter().map(|entry| entry.key.clone()));
         changes.removed = refresh.removed_keys;
         refresh.entries
     } else {
-        let entries = scan_folder_subtree_entries(root, Path::new(""), names).map_err(|error| error.to_string())?;
-        changes.touched.extend(entries.iter().map(|entry| entry.key.clone()));
+        let entries = scan_folder_subtree_entries(root, Path::new(""), names)
+            .map_err(|error| error.to_string())?;
+        changes
+            .touched
+            .extend(entries.iter().map(|entry| entry.key.clone()));
         entries
     };
     // Refresh skips locked files. A previously known tag that still exists
     // must remain a rewrite candidate, rather than looking safely deleted.
     // Compared ignoring case: a remembered tag spelled differently from the
     // refreshed one is the same file, not one the refresh missed.
-    let current_keys: HashSet<_> = entries.iter().map(|entry| crate::core::tag_key::key_identity(&entry.key)).collect();
-    for entry in previous_entries.iter().filter(|entry| !current_keys.contains(&crate::core::tag_key::key_identity(&entry.key))) {
+    let current_keys: HashSet<_> = entries
+        .iter()
+        .map(|entry| crate::core::tag_key::key_identity(&entry.key))
+        .collect();
+    for entry in previous_entries
+        .iter()
+        .filter(|entry| !current_keys.contains(&crate::core::tag_key::key_identity(&entry.key)))
+    {
         if let TagEntryLocation::LooseFile(path) = &entry.location
             && path.try_exists().unwrap_or(true)
         {
@@ -702,19 +738,47 @@ pub(in crate::app) fn prepare_tag_refactor_index_cancellable(
     entries.sort_by_cached_key(|entry| crate::core::source::natural_key(&entry.display_path));
     let keys: HashSet<&str> = entries.iter().map(|entry| entry.key.as_str()).collect();
     changes.removed.retain(|key| !keys.contains(key.as_str()));
-    changes.removed.extend(previous_entries.iter().filter(|entry| !keys.contains(entry.key.as_str())).map(|entry| entry.key.clone()));
-    changes.removed.extend(index.tag_keys().filter(|key| !keys.contains(key)).map(str::to_owned));
+    changes.removed.extend(
+        previous_entries
+            .iter()
+            .filter(|entry| !keys.contains(entry.key.as_str()))
+            .map(|entry| entry.key.clone()),
+    );
+    changes.removed.extend(
+        index
+            .tag_keys()
+            .filter(|key| !keys.contains(key))
+            .map(str::to_owned),
+    );
     changes.removed.sort();
     changes.removed.dedup();
-    for key in &changes.removed { index.clear_tag(key); }
-    for entry in &entries {
-        if !index.contains_tag(&entry.key) { changes.touched.insert(entry.key.clone()); }
+    for key in &changes.removed {
+        index.clear_tag(key);
     }
-    let touched: Vec<_> = entries.iter().filter(|entry| changes.touched.contains(&entry.key)).collect();
+    for entry in &entries {
+        if !index.contains_tag(&entry.key) {
+            changes.touched.insert(entry.key.clone());
+        }
+    }
+    let touched: Vec<_> = entries
+        .iter()
+        .filter(|entry| changes.touched.contains(&entry.key))
+        .collect();
     for (number, entry) in touched.iter().enumerate() {
-        if cancelled() { return Err("Folder operation cancelled; no files changed".into()); }
+        if cancelled() {
+            return Err("Folder operation cancelled; no files changed".into());
+        }
         if number % 50 == 0 {
-            send_folder_refactor_progress(tx, label, &format!("Refreshing dependency records {}/{}", number + 1, touched.len()), None);
+            send_folder_refactor_progress(
+                tx,
+                label,
+                &format!(
+                    "Refreshing dependency records {}/{}",
+                    number + 1,
+                    touched.len()
+                ),
+                None,
+            );
         }
         match read_entry_dependencies(source, entry) {
             Ok(deps) => index.set_tag_dependencies(entry.key.clone(), deps),
@@ -726,7 +790,9 @@ pub(in crate::app) fn prepare_tag_refactor_index_cancellable(
             }
         }
     }
-    if cancelled() { return Err("Folder operation cancelled; no files changed".into()); }
+    if cancelled() {
+        return Err("Folder operation cancelled; no files changed".into());
+    }
     Ok((entries, index, changes))
 }
 
@@ -816,51 +882,89 @@ pub(in crate::app) fn run_folder_refactor_job_inner(
     let resolved_root = crate::core::recovery::resolved_path(&root)?;
     let resolved_source = crate::core::recovery::resolved_path(&source)?;
     let resolved_destination = crate::core::recovery::resolved_path(&destination)?;
-    if !resolved_source.starts_with(&resolved_root) || !resolved_destination.starts_with(&resolved_root) {
+    if !resolved_source.starts_with(&resolved_root)
+        || !resolved_destination.starts_with(&resolved_root)
+    {
         return Err("Choose folders inside the loaded tags folder; links cannot escape it".into());
     }
-    if resolved_destination == resolved_source || resolved_destination.starts_with(&resolved_source) {
+    if resolved_destination == resolved_source || resolved_destination.starts_with(&resolved_source)
+    {
         return Err("Cannot move/copy a folder into itself".into());
     }
     if new_name.is_none() {
-        let actual_destination = crate::core::folder_merge::matching_path(&destination)?.unwrap_or(destination.clone());
+        let actual_destination =
+            crate::core::folder_merge::matching_path(&destination)?.unwrap_or(destination.clone());
         if actual_destination.exists() {
             let resolved_destination = crate::core::recovery::resolved_path(&actual_destination)?;
             if !resolved_destination.starts_with(&resolved_root) {
-                return Err("Choose folders inside the loaded tags folder; links cannot escape it".into());
+                return Err(
+                    "Choose folders inside the loaded tags folder; links cannot escape it".into(),
+                );
             }
             if resolved_source.starts_with(&resolved_destination) {
                 return Err("Cannot merge folders that contain one another".into());
             }
             let context = merge_context.ok_or("Folder merging requires an interactive review")?;
-            return super::folder_merge_ops::run(root, source, actual_destination, move_folder, label, names, game, existing_all_entries, existing_reverse_dependencies, context, tx);
+            return super::folder_merge_ops::run(
+                root,
+                source,
+                actual_destination,
+                move_folder,
+                label,
+                names,
+                game,
+                existing_all_entries,
+                existing_reverse_dependencies,
+                context,
+                tx,
+            );
         }
     }
     if move_folder {
         // Tag paths ignore case, so a sibling differing only in case is a
         // conflict too: both folders would claim the same references.
         if crate::core::folder_merge::matching_path(&destination)?.is_some() {
-            return Err(format!("Destination already exists: {}", destination.display()));
+            return Err(format!(
+                "Destination already exists: {}",
+                destination.display()
+            ));
         }
         if new_name.is_some()
-            && scan_folder_subtree_entries(&root, &source_rel, &names).map_err(|e| e.to_string())?.is_empty()
+            && scan_folder_subtree_entries(&root, &source_rel, &names)
+                .map_err(|e| e.to_string())?
+                .is_empty()
         {
             return Err("No tags found in that folder".into());
         }
         // Journalled like every bulk operation: a referrer or script that
         // can't be rewritten undoes the whole move.
-        let context = merge_context.unwrap_or_else(super::folder_merge_ops::MergeContext::unreviewed);
+        let context =
+            merge_context.unwrap_or_else(super::folder_merge_ops::MergeContext::unreviewed);
         return super::folder_merge_ops::run_reviewed_move(
-            root, source, destination, label, names, game, existing_all_entries, existing_reverse_dependencies, context, tx,
+            root,
+            source,
+            destination,
+            label,
+            names,
+            game,
+            existing_all_entries,
+            existing_reverse_dependencies,
+            context,
+            tx,
         );
     }
     // The established no-conflict copy has no review. Applying begins now.
     if let Some(context) = &merge_context {
-        if context.control.cancelled() { return Err("Folder operation cancelled; no files changed".into()); }
+        if context.control.cancelled() {
+            return Err("Folder operation cancelled; no files changed".into());
+        }
         context.control.begin_apply()?;
     }
     if crate::core::folder_merge::matching_path(&destination)?.is_some() {
-        return Err(format!("Destination already exists: {}", destination.display()));
+        return Err(format!(
+            "Destination already exists: {}",
+            destination.display()
+        ));
     }
 
     // A copy leaves the originals alone: a reference left unrewritten in a
@@ -871,10 +975,16 @@ pub(in crate::app) fn run_folder_refactor_job_inner(
     let rewrites =
         build_folder_reference_rewrites(&root, &source, &destination, &old_entries, &names);
     let mut reverse_dependencies = existing_reverse_dependencies.or_else(|| {
-        game.and_then(|game| crate::core::source::load_reverse_dependency_index(game.as_str(), &root))
+        game.and_then(|game| {
+            crate::core::source::load_reverse_dependency_index(game.as_str(), &root)
+        })
     });
     let dependency_schema_path = game
-        .map(|game| locate_definitions_root().join(game.as_str()).join("tag_dependency_list.json"))
+        .map(|game| {
+            locate_definitions_root()
+                .join(game.as_str())
+                .join("tag_dependency_list.json")
+        })
         .filter(|path| path.is_file());
     let rewrite_source = TagSource::LooseFolder {
         root: root.clone(),
@@ -902,7 +1012,8 @@ pub(in crate::app) fn run_folder_refactor_job_inner(
     let failed = rewrite_result.failed.clone();
 
     send_folder_refactor_progress(tx, &label, "Refreshing browser", None);
-    let tree = crate::core::source::build_folder_directory_tree(&root).map_err(|e| e.to_string())?;
+    let tree =
+        crate::core::source::build_folder_directory_tree(&root).map_err(|e| e.to_string())?;
     let all_entries = if existing_all_entries.is_empty() {
         Vec::new()
     } else {
@@ -920,9 +1031,20 @@ pub(in crate::app) fn run_folder_refactor_job_inner(
         );
     }
     let mut index_changes = RefactorIndexChanges::default();
-    index_changes.touched.extend(new_entries.iter().map(|entry| entry.key.clone()));
-    index_changes.touched.extend(rewrite_result.changed_keys.iter().cloned());
-    persist_refactor_indexes(&root, game, &all_entries, reverse_dependencies.as_ref(), &index_changes, tx);
+    index_changes
+        .touched
+        .extend(new_entries.iter().map(|entry| entry.key.clone()));
+    index_changes
+        .touched
+        .extend(rewrite_result.changed_keys.iter().cloned());
+    persist_refactor_indexes(
+        &root,
+        game,
+        &all_entries,
+        reverse_dependencies.as_ref(),
+        &index_changes,
+        tx,
+    );
 
     let mut status = format!(
         "Copied {} tag(s), updated {} reference(s) in {} tag(s)",
@@ -939,9 +1061,14 @@ pub(in crate::app) fn run_folder_refactor_job_inner(
     let mut lines = vec![format!(
         "Copied folder: {} -> {}",
         source.strip_prefix(&root).unwrap_or(&source).display(),
-        destination.strip_prefix(&root).unwrap_or(&destination).display()
+        destination
+            .strip_prefix(&root)
+            .unwrap_or(&destination)
+            .display()
     )];
-    lines.push(format!("Updated {references_changed} reference(s) in {tags_changed} tag(s)"));
+    lines.push(format!(
+        "Updated {references_changed} reference(s) in {tags_changed} tag(s)"
+    ));
     lines.extend(rewrite_failure_lines(&failed));
 
     Ok(FolderRefactorFinished {
@@ -1485,72 +1612,175 @@ mod tests {
     fn cancelling_a_merge_interrupts_the_metadata_index_scan() {
         let kit = LooseKit::new("merge-cancel-metadata", "halo2_mcc");
         let first = kit.write_mcc("ui/hud_test/hud/example", "new_hud_definition", |_| {});
-        let workers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+        let workers = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
         let total = (workers * 4).max(128);
-        for n in 1..total { fs::copy(&first, kit.path(&format!("ui/hud_test/hud/example_{n}.new_hud_definition"))).unwrap(); }
+        for n in 1..total {
+            fs::copy(
+                &first,
+                kit.path(&format!("ui/hud_test/hud/example_{n}.new_hud_definition")),
+            )
+            .unwrap();
+        }
         let entries = kit.entries();
         let mut index = ReverseDependencyIndex::default();
-        for entry in &entries { index.set_tag_dependencies(entry.key.clone(), Vec::new()); }
+        for entry in &entries {
+            index.set_tag_dependencies(entry.key.clone(), Vec::new());
+        }
         crate::core::source::save_entry_index(kit.game, &kit.root, &entries).unwrap();
         let checks = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        crate::core::source::ENTRY_REFRESH_FILE_CHECKS.with(|hook| *hook.borrow_mut() = Some(checks.clone()));
+        crate::core::source::ENTRY_REFRESH_FILE_CHECKS
+            .with(|hook| *hook.borrow_mut() = Some(checks.clone()));
         let (tx, _rx) = mpsc::channel();
-        let result = prepare_tag_refactor_index_cancellable(&kit.root, &kit.source().source, Some(GameId::Halo2), &kit.names(), &entries, Some(index), "Merging hud", &tx,
-            &|| checks.load(std::sync::atomic::Ordering::Relaxed) > 0);
+        let result = prepare_tag_refactor_index_cancellable(
+            &kit.root,
+            &kit.source().source,
+            Some(GameId::Halo2),
+            &kit.names(),
+            &entries,
+            Some(index),
+            "Merging hud",
+            &tx,
+            &|| checks.load(std::sync::atomic::Ordering::Relaxed) > 0,
+        );
         crate::core::source::ENTRY_REFRESH_FILE_CHECKS.with(|hook| *hook.borrow_mut() = None);
         let checked = checks.load(std::sync::atomic::Ordering::Relaxed);
-        assert!(result.err().is_some_and(|error| error.contains("cancelled")), "Cancel was ignored during the checking-tag-index phase; checked {checked}/{total} files");
-        assert!(checked <= workers * 2, "cancellation still scanned {checked}/{total} files");
+        assert!(
+            result
+                .err()
+                .is_some_and(|error| error.contains("cancelled")),
+            "Cancel was ignored during the checking-tag-index phase; checked {checked}/{total} files"
+        );
+        assert!(
+            checked <= workers * 2,
+            "cancellation still scanned {checked}/{total} files"
+        );
     }
 
     #[test]
     fn catalog_refresh_waits_for_the_open_tag_move_to_finish() {
         let kit = LooseKit::new("move-hud-refresh-gate", "halo2_mcc");
         kit.write_mcc("hud/example", "new_hud_definition", |_| {});
-        let mut app = app(); kit.install_indexed(&mut app);
-        app.tag_ops.folder_refactor = Some(FolderRefactorUiState { label: "Moving tag".into(), phase: "Moving files".into(), progress: None });
+        let mut app = app();
+        kit.install_indexed(&mut app);
+        app.tag_ops.folder_refactor = Some(FolderRefactorUiState {
+            label: "Moving tag".into(),
+            phase: "Moving files".into(),
+            progress: None,
+        });
         app.model.kits[0].index_jobs.next_refresh_at = 0.0;
         app.maybe_refresh_entry_index(ctx());
-        assert!(!app.model.kits[0].index_jobs.refreshing, "periodic refresh must wait for the move");
+        assert!(
+            !app.model.kits[0].index_jobs.refreshing,
+            "periodic refresh must wait for the move"
+        );
         app.begin_refresh_entry_index(ctx());
-        assert!(!app.model.kits[0].index_jobs.refreshing, "a queued manual refresh must wait too");
+        assert!(
+            !app.model.kits[0].index_jobs.refreshing,
+            "a queued manual refresh must wait too"
+        );
     }
 
     #[test]
     fn an_index_refresh_during_a_move_cannot_orphan_the_open_hud_tag() {
         let kit = LooseKit::new("move-open-hud-refresh", "halo2_mcc");
         kit.write_mcc("hud/example", "new_hud_definition", |_| {});
-        let mut app = app(); kit.install_indexed(&mut app);
+        let mut app = app();
+        kit.install_indexed(&mut app);
         let old_key = kit.open(&mut app, "hud/example.new_hud_definition");
         let kit_id = app.model.active_kit_id();
         let stamp = app.model.kit_stamp();
-        let pane = app.views[kit_id].tag_tree.tiles.iter().find_map(|(id, tile)|
-            matches!(tile, egui_tiles::Tile::Pane(key) if key == &old_key).then_some(*id)).unwrap();
+        let pane = app.views[kit_id]
+            .tag_tree
+            .tiles
+            .iter()
+            .find_map(|(id, tile)| {
+                matches!(tile, egui_tiles::Tile::Pane(key) if key == &old_key).then_some(*id)
+            })
+            .unwrap();
         let entry = app.model.entry_for_key(&old_key).unwrap().clone();
-        app.tag_ops.folder_refactor = Some(FolderRefactorUiState { label: "Moving tag".into(), phase: "Moving files".into(), progress: None });
+        app.tag_ops.folder_refactor = Some(FolderRefactorUiState {
+            label: "Moving tag".into(),
+            phase: "Moving files".into(),
+            progress: None,
+        });
         let (tx, _rx) = mpsc::channel();
-        let done = run_tag_rename_job(kit.root.clone(), entry, "testing\\example".into(), "Moving tag".into(), kit.names(), Some(GameId::Halo2), kit.entries(), Some(kit.index()), &tx).unwrap();
+        let done = run_tag_rename_job(
+            kit.root.clone(),
+            entry,
+            "testing\\example".into(),
+            "Moving tag".into(),
+            kit.names(),
+            Some(GameId::Halo2),
+            kit.entries(),
+            Some(kit.index()),
+            &tx,
+        )
+        .unwrap();
         let new_key = kit.key("testing/example.new_hud_definition");
         // A background scan sees the changed filesystem before the move's
         // completion message reaches the UI. Use the real message handlers.
-        app.apply_worker_message(WorkerMessage::EntryIndexRefreshed { stamp, result: Ok(EntryIndexRefresh {
-            entries: done.all_entries.clone(), changed: true, added: 1, updated: 0, removed: 1,
-            touched: done.all_entries.clone(), removed_keys: vec![old_key.clone()], touched_dependencies: Vec::new(), errors: Vec::new(),
-        }) }, &ctx());
-        assert_eq!(app.model.kit_stamp(), stamp, "background catalog changes must not invalidate an active move");
-        assert!(app.model.kits[0].index_jobs.refresh_browser, "the deferred refresh must be retried even if the scan already saved its index");
-        app.apply_worker_message(WorkerMessage::FolderRefactorFinished { stamp, result: Ok(done) }, &ctx());
-        assert!(matches!(app.views[kit_id].tag_tree.tiles.get(pane), Some(egui_tiles::Tile::Pane(key)) if key == &new_key), "the open HUD pane must follow the move even when the index refresh finishes first");
+        app.apply_worker_message(
+            WorkerMessage::EntryIndexRefreshed {
+                stamp,
+                result: Ok(EntryIndexRefresh {
+                    entries: done.all_entries.clone(),
+                    changed: true,
+                    added: 1,
+                    updated: 0,
+                    removed: 1,
+                    touched: done.all_entries.clone(),
+                    removed_keys: vec![old_key.clone()],
+                    touched_dependencies: Vec::new(),
+                    errors: Vec::new(),
+                }),
+            },
+            &ctx(),
+        );
+        assert_eq!(
+            app.model.kit_stamp(),
+            stamp,
+            "background catalog changes must not invalidate an active move"
+        );
+        assert!(
+            app.model.kits[0].index_jobs.refresh_browser,
+            "the deferred refresh must be retried even if the scan already saved its index"
+        );
+        app.apply_worker_message(
+            WorkerMessage::FolderRefactorFinished {
+                stamp,
+                result: Ok(done),
+            },
+            &ctx(),
+        );
+        assert!(
+            matches!(app.views[kit_id].tag_tree.tiles.get(pane), Some(egui_tiles::Tile::Pane(key)) if key == &new_key),
+            "the open HUD pane must follow the move even when the index refresh finishes first"
+        );
         assert!(app.model.entry_for_key(&new_key).is_some());
         assert!(app.model.entry_for_key(&old_key).is_none());
-        assert_eq!(app.model.kits[0].selected_key.as_deref(), Some(new_key.as_str()));
+        assert_eq!(
+            app.model.kits[0].selected_key.as_deref(),
+            Some(new_key.as_str())
+        );
     }
 
     #[test]
     fn moving_an_open_tag_refreshes_its_source_lookup_and_live_pane() {
         for (game, source_ref, group, destination_ref) in [
-            ("halo2_mcc", "hud/example", "new_hud_definition", "testing/example"),
-            ("halo3_mcc", "objects/props/crate", "render_model", "levels/crate"),
+            (
+                "halo2_mcc",
+                "hud/example",
+                "new_hud_definition",
+                "testing/example",
+            ),
+            (
+                "halo3_mcc",
+                "objects/props/crate",
+                "render_model",
+                "levels/crate",
+            ),
         ] {
             let kit = LooseKit::new("move-open-tag-pane", game);
             kit.write_mcc(source_ref, group, |_| {});
@@ -1565,8 +1795,14 @@ mod tests {
             let other_key = kit.open(&mut app, &format!("other/untouched.{group}"));
             let old_key = kit.open(&mut app, &source_rel);
             let kit_id = app.model.active_kit_id();
-            let pane = app.views[kit_id].tag_tree.tiles.iter().find_map(|(id, tile)|
-                matches!(tile, egui_tiles::Tile::Pane(key) if key == &old_key).then_some(*id)).unwrap();
+            let pane = app.views[kit_id]
+                .tag_tree
+                .tiles
+                .iter()
+                .find_map(|(id, tile)| {
+                    matches!(tile, egui_tiles::Tile::Pane(key) if key == &old_key).then_some(*id)
+                })
+                .unwrap();
             let context = ctx();
             context.set_global_style(foundation_style());
             let mut time = 1.0;
@@ -1574,30 +1810,66 @@ mod tests {
                 time += 0.1;
                 crate::app::run_ui_test(&context, screen(Vec::new(), time), |ui| app.run_frame(ui));
             };
-            for _ in 0..6 { frame(&mut app); }
+            for _ in 0..6 {
+                frame(&mut app);
+            }
             let entry = app.model.entry_for_key(&old_key).unwrap().clone();
-            app.start_tag_rename_job(kit.root.clone(), entry, tag_path::from_input(destination_ref), "Moving tag");
+            app.start_tag_rename_job(
+                kit.root.clone(),
+                entry,
+                tag_path::from_input(destination_ref),
+                "Moving tag",
+            );
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
             while app.tag_ops.folder_refactor.is_some() {
-                assert!(std::time::Instant::now() < deadline, "move did not finish: {}", app.model.status);
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "move did not finish: {}",
+                    app.model.status
+                );
                 frame(&mut app);
                 std::thread::yield_now();
             }
             while !app.model.kits[0].loading_tags.is_empty() {
-                assert!(std::time::Instant::now() < deadline, "open documents did not reload");
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "open documents did not reload"
+                );
                 frame(&mut app);
                 std::thread::yield_now();
             }
-            for _ in 0..3 { frame(&mut app); }
+            for _ in 0..3 {
+                frame(&mut app);
+            }
             let new_key = kit.key(&destination_rel);
-            assert!(app.model.entry_for_key(&old_key).is_none(), "the browser must stop resolving the old path immediately");
-            let new_entry = app.model.entry_for_key(&new_key).expect("the browser must resolve the new path immediately after the move");
-            assert!(matches!(&new_entry.location, TagEntryLocation::LooseFile(path) if path == &kit.path(&destination_rel)));
-            assert!(matches!(app.views[kit_id].tag_tree.tiles.get(pane), Some(egui_tiles::Tile::Pane(key)) if key == &new_key), "the existing open pane must follow the moved file");
-            assert_eq!(app.model.kits[0].selected_key.as_deref(), Some(new_key.as_str()));
+            assert!(
+                app.model.entry_for_key(&old_key).is_none(),
+                "the browser must stop resolving the old path immediately"
+            );
+            let new_entry = app
+                .model
+                .entry_for_key(&new_key)
+                .expect("the browser must resolve the new path immediately after the move");
+            assert!(
+                matches!(&new_entry.location, TagEntryLocation::LooseFile(path) if path == &kit.path(&destination_rel))
+            );
+            assert!(
+                matches!(app.views[kit_id].tag_tree.tiles.get(pane), Some(egui_tiles::Tile::Pane(key)) if key == &new_key),
+                "the existing open pane must follow the moved file"
+            );
+            assert_eq!(
+                app.model.kits[0].selected_key.as_deref(),
+                Some(new_key.as_str())
+            );
             assert!(!app.model.kits[0].open_tabs.contains(&old_key));
-            assert!(app.model.kits[0].parsed_tags.contains_key(&new_key), "the moved open tag must reload without being selected again");
-            assert!(app.model.kits[0].parsed_tags.contains_key(&other_key), "other open tabs must stay loaded too");
+            assert!(
+                app.model.kits[0].parsed_tags.contains_key(&new_key),
+                "the moved open tag must reload without being selected again"
+            );
+            assert!(
+                app.model.kits[0].parsed_tags.contains_key(&other_key),
+                "other open tabs must stay loaded too"
+            );
         }
     }
 

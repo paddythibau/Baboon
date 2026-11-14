@@ -1088,15 +1088,34 @@ mod tests {
     #[test]
     fn a_destructive_accent_fills_red_at_neutral_opacities_and_draws_its_icon_in_one_color() {
         let accent = ButtonAccent::Destructive;
-        assert!(button_icon_svg(ButtonIcon::Garbage).contains("#EB4747"), "the accent is the icon's own red");
+        assert!(
+            button_icon_svg(ButtonIcon::Garbage).contains("#EB4747"),
+            "the accent is the icon's own red"
+        );
         assert_eq!(accent.color(), Color32::from_rgb(0xEB, 0x47, 0x47));
         for alpha in [ACCENT_IDLE_ALPHA, ACCENT_HOVER_ALPHA] {
             assert_eq!(accent.fill(alpha).a(), alpha);
         }
-        assert_eq!((ACCENT_IDLE_ALPHA, ACCENT_HOVER_ALPHA), (64, 128), "25% idle, 50% hovered");
-        let uri = mono_icon_uri(&egui::Context::default(), ButtonIcon::Garbage, Color32::WHITE);
+        assert_eq!(
+            (ACCENT_IDLE_ALPHA, ACCENT_HOVER_ALPHA),
+            (64, 128),
+            "25% idle, 50% hovered"
+        );
+        let uri = mono_icon_uri(
+            &egui::Context::default(),
+            ButtonIcon::Garbage,
+            Color32::WHITE,
+        );
         assert!(uri.ends_with(".svg"), "egui loads it as an SVG: {uri}");
-        assert_ne!(uri, button_icon_uri(&egui::Context::default(), ButtonIcon::Garbage, Color32::WHITE, BUTTON_ICON_SIZE));
+        assert_ne!(
+            uri,
+            button_icon_uri(
+                &egui::Context::default(),
+                ButtonIcon::Garbage,
+                Color32::WHITE,
+                BUTTON_ICON_SIZE
+            )
+        );
         let white = Color32::WHITE;
         let svg = String::from_utf8(mono_icon_bytes(ButtonIcon::Garbage, white).to_vec()).unwrap();
         assert!(!svg.contains("#EB4747"));

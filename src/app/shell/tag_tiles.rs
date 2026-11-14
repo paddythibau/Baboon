@@ -77,15 +77,25 @@ struct TagPaneBehavior<'a, 'c, 'p> {
 }
 
 impl TagPaneBehavior<'_, '_, '_> {
-    fn tab_close_menu(&mut self,ui:&mut Ui,key:&str,group:&[String]) {
-        if crate::app::browser::context_menu_button(ui,"Close Tab").clicked() {
-            self.close_requests.push(key.to_owned());close_menu(ui);
+    fn tab_close_menu(&mut self, ui: &mut Ui, key: &str, group: &[String]) {
+        if crate::app::browser::context_menu_button(ui, "Close Tab").clicked() {
+            self.close_requests.push(key.to_owned());
+            close_menu(ui);
         }
-        if crate::app::browser::context_menu_button(ui,"Close All").clicked() {
-            self.close_group=Some((group.to_vec(),None));close_menu(ui);
+        if crate::app::browser::context_menu_button(ui, "Close All").clicked() {
+            self.close_group = Some((group.to_vec(), None));
+            close_menu(ui);
         }
-        if crate::app::browser::context_menu_button(ui,"Close All Other Tabs").clicked() {
-            self.close_group=Some((group.iter().filter(|other|other.as_str()!=key).cloned().collect(),Some(key.to_owned())));close_menu(ui);
+        if crate::app::browser::context_menu_button(ui, "Close All Other Tabs").clicked() {
+            self.close_group = Some((
+                group
+                    .iter()
+                    .filter(|other| other.as_str() != key)
+                    .cloned()
+                    .collect(),
+                Some(key.to_owned()),
+            ));
+            close_menu(ui);
         }
     }
 }

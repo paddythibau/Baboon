@@ -23,106 +23,324 @@ impl Baboon {
     /// Route browser shortcuts only while its selection owns keyboard focus.
     /// Pane selections remain intact when an editor or another browser gains focus.
     pub(in crate::app) fn handle_browser_selection_input(&mut self, ctx: &egui::Context) {
-        let owner=ctx.data(|data|data.get_temp::<(egui::Id,egui::Rect)>(browser_selection_owner_id()));
+        let owner =
+            ctx.data(|data| data.get_temp::<(egui::Id, egui::Rect)>(browser_selection_owner_id()));
         // egui may surrender a newly focused row on Escape before our handler
         // runs: its focus-lock filter is installed only after a full frame.
         let escaped_browser = ctx.input(|input| input.key_pressed(egui::Key::Escape))
-            && owner.is_some_and(|(id,_)| ctx.memory(|memory| memory.focused().is_none() && memory.had_focus_last_frame(id)));
-        let focused=escaped_browser || owner.is_some_and(|(id,_)|ctx.memory(|memory|memory.focused())==Some(id));
-        let allowed=(!ctx.egui_wants_keyboard_input()||focused)&&ctx.memory(|memory|memory.top_modal_layer().is_none());
-        if allowed && ctx.input_mut(|input|input.consume_key(egui::Modifiers::NONE,egui::Key::F5)) {self.refresh_tag_browser(ctx.clone());}
-        let popup=ctx.data(|data|data.get_temp::<egui::Id>(browser_selection_owner_id().with("popup"))).is_some_and(|id|egui::Popup::is_id_open(ctx,id));
-        let pane_owner=ctx.data(|data|data.get_temp::<(KitId,String)>(browser_selection_owner_id().with("pane")));
-        let kit_id=pane_owner.as_ref().map(|owner|owner.0).unwrap_or_else(||self.model.active_kit_id());
-        let Some(index)=self.model.kit_index(kit_id) else{return};
-        let pane_key=pane_owner.as_ref().map(|owner|owner.1.clone());
+            && owner.is_some_and(|(id, _)| {
+                ctx.memory(|memory| memory.focused().is_none() && memory.had_focus_last_frame(id))
+            });
+        let focused = escaped_browser
+            || owner.is_some_and(|(id, _)| ctx.memory(|memory| memory.focused()) == Some(id));
+        let allowed = (!ctx.egui_wants_keyboard_input() || focused)
+            && ctx.memory(|memory| memory.top_modal_layer().is_none());
+        if allowed && ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::F5))
+        {
+            self.refresh_tag_browser(ctx.clone());
+        }
+        let popup = ctx
+            .data(|data| data.get_temp::<egui::Id>(browser_selection_owner_id().with("popup")))
+            .is_some_and(|id| egui::Popup::is_id_open(ctx, id));
+        let pane_owner = ctx.data(|data| {
+            data.get_temp::<(KitId, String)>(browser_selection_owner_id().with("pane"))
+        });
+        let kit_id = pane_owner
+            .as_ref()
+            .map(|owner| owner.0)
+            .unwrap_or_else(|| self.model.active_kit_id());
+        let Some(index) = self.model.kit_index(kit_id) else {
+            return;
+        };
+        let pane_key = pane_owner.as_ref().map(|owner| owner.1.clone());
         if allowed && !popup {
-        if ctx.input_mut(|input|input.consume_key(egui::Modifiers::ALT,egui::Key::ArrowUp)) {
-            // Alt+Up works without the browser holding focus, so it acts on
-            // the kit being worked in: the last-clicked pane only when it
-            // belongs to that kit, else the kit's current folder pane.
-            let active=self.model.active_kit_id();
-            let Some(active_index)=self.model.kit_index(active) else{return};
-            let owned=pane_key.as_ref().filter(|_|kit_id==active);
-            if let Some(key)=owned.or(self.model.kits[active_index].current_pane.as_ref()).cloned() {
-                let kit_id=active;
-                let key=&key;
-                if let Some(pane)=self.views[kit_id].browser.folder_browsers.get_mut(key) {
-                    if let Some(parent)=pane.rel_path.parent().map(Path::to_path_buf) {
-                        let child=folder_pane_key(&pane.rel_path);
-                        let label=parent.file_name().unwrap_or_default().to_string_lossy().into_owned();
-                        crate::app::shell::frame::navigate_folder_browser(pane,parent,label);
-                        // Asset and Groups views have no folder rows to select.
-                        pane.assets_view=false;
-                        if pane.mode==BrowserMode::Groups {pane.mode=BrowserMode::Flat;}
-                        pane.selection.keys.insert(child.clone());
-                        pane.selection.anchor=Some(child.clone());
-                        pane.selection.focus=Some(child.clone());
-                        pane.selected_tag=Some(child.clone());
-                        request_browser_selection(ctx,egui::Id::unique(("folder_navigation",kit_id,key.as_str())),child);
+            if ctx.input_mut(|input| input.consume_key(egui::Modifiers::ALT, egui::Key::ArrowUp)) {
+                // Alt+Up works without the browser holding focus, so it acts on
+                // the kit being worked in: the last-clicked pane only when it
+                // belongs to that kit, else the kit's current folder pane.
+                let active = self.model.active_kit_id();
+                let Some(active_index) = self.model.kit_index(active) else {
+                    return;
+                };
+                let owned = pane_key.as_ref().filter(|_| kit_id == active);
+                if let Some(key) = owned
+                    .or(self.model.kits[active_index].current_pane.as_ref())
+                    .cloned()
+                {
+                    let kit_id = active;
+                    let key = &key;
+                    if let Some(pane) = self.views[kit_id].browser.folder_browsers.get_mut(key) {
+                        if let Some(parent) = pane.rel_path.parent().map(Path::to_path_buf) {
+                            let child = folder_pane_key(&pane.rel_path);
+                            let label = parent
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .into_owned();
+                            crate::app::shell::frame::navigate_folder_browser(pane, parent, label);
+                            // Asset and Groups views have no folder rows to select.
+                            pane.assets_view = false;
+                            if pane.mode == BrowserMode::Groups {
+                                pane.mode = BrowserMode::Flat;
+                            }
+                            pane.selection.keys.insert(child.clone());
+                            pane.selection.anchor = Some(child.clone());
+                            pane.selection.focus = Some(child.clone());
+                            pane.selected_tag = Some(child.clone());
+                            request_browser_selection(
+                                ctx,
+                                egui::Id::unique(("folder_navigation", kit_id, key.as_str())),
+                                child,
+                            );
+                        }
                     }
                 }
+                invalidate_browser_navigation(ctx);
+                ctx.request_repaint();
+                return;
             }
-            invalidate_browser_navigation(ctx);ctx.request_repaint();return;
         }
+        if !focused || !allowed {
+            return;
         }
-        if !focused || !allowed {return;}
-        let multiple=pane_key.as_ref().and_then(|key|self.views[kit_id].browser.folder_browsers.get(key)).is_some_and(|pane|pane.mode==BrowserMode::Flat||pane.assets_view);
-        let current=if let Some(key)=&pane_key {self.views[kit_id].browser.folder_browsers.get(key).and_then(|pane|pane.selected_tag.clone())}else{self.views[kit_id].browser.selected_tag.clone()};
-        let copied=ctx.input_mut(|input| {
-            let copy=input.events.iter().any(|event|matches!(event,egui::Event::Copy));
-            let shortcut=input.consume_key(egui::Modifiers::COMMAND,egui::Key::C) | input.consume_key(egui::Modifiers::CTRL,egui::Key::C);
+        let multiple = pane_key
+            .as_ref()
+            .and_then(|key| self.views[kit_id].browser.folder_browsers.get(key))
+            .is_some_and(|pane| pane.mode == BrowserMode::Flat || pane.assets_view);
+        let current = if let Some(key) = &pane_key {
+            self.views[kit_id]
+                .browser
+                .folder_browsers
+                .get(key)
+                .and_then(|pane| pane.selected_tag.clone())
+        } else {
+            self.views[kit_id].browser.selected_tag.clone()
+        };
+        let copied = ctx.input_mut(|input| {
+            let copy = input
+                .events
+                .iter()
+                .any(|event| matches!(event, egui::Event::Copy));
+            let shortcut = input.consume_key(egui::Modifiers::COMMAND, egui::Key::C)
+                | input.consume_key(egui::Modifiers::CTRL, egui::Key::C);
             copy || shortcut
         });
-        if copied {ctx.input_mut(|input|input.events.retain(|event|!matches!(event,egui::Event::Copy)));
-            if !multiple || pane_key.as_ref().and_then(|key|self.views[kit_id].browser.folder_browsers.get(key)).is_some_and(|pane|pane.selection.keys.len()==1) {
-                if let Some(key)=current {let action=if let Some(path)=key.strip_prefix(FOLDER_PANE_PREFIX){BrowserAction::CopyFolderPath(tag_path::to_relative(path))}else{BrowserAction::CopyTagName(key)};self.apply_browser_command(BrowserCommand::Action{kit:kit_id,action},ctx);}
+        if copied {
+            ctx.input_mut(|input| {
+                input
+                    .events
+                    .retain(|event| !matches!(event, egui::Event::Copy))
+            });
+            if !multiple
+                || pane_key
+                    .as_ref()
+                    .and_then(|key| self.views[kit_id].browser.folder_browsers.get(key))
+                    .is_some_and(|pane| pane.selection.keys.len() == 1)
+            {
+                if let Some(key) = current {
+                    let action = if let Some(path) = key.strip_prefix(FOLDER_PANE_PREFIX) {
+                        BrowserAction::CopyFolderPath(tag_path::to_relative(path))
+                    } else {
+                        BrowserAction::CopyTagName(key)
+                    };
+                    self.apply_browser_command(
+                        BrowserCommand::Action {
+                            kit: kit_id,
+                            action,
+                        },
+                        ctx,
+                    );
+                }
             }
             return;
         }
-        if popup {return;}
-        if ctx.input_mut(|input|input.consume_key(egui::Modifiers::NONE,egui::Key::Escape)) {
-            if let Some(key)=&pane_key {if let Some(pane)=self.views[kit_id].browser.folder_browsers.get_mut(key){pane.selection.clear();pane.selected_tag=None;}}
-            else {self.views[kit_id].browser.selected_tag=None;}
-            if let Some((id,_))=owner {ctx.memory_mut(|memory| memory.request_focus(id));}
-            reset_browser_navigation_selection(ctx);ctx.request_repaint();return;
-        }
-        if multiple && ctx.input_mut(|input|input.consume_key(egui::Modifiers::NONE,egui::Key::F2)) {
-            if let Some(pane_key)=pane_key {
-                let Some(pane)=self.views[kit_id].browser.folder_browsers.get(&pane_key) else{return};
-                let keys=pane.selection.ordered_keys();
-                self.focus_kit(index);self.begin_browser_bulk(pane_key,keys,BulkAction::Rename,ctx);
-            }
+        if popup {
             return;
         }
-        if multiple && ctx.input_mut(|input|input.consume_key(egui::Modifiers::COMMAND,egui::Key::A)||input.consume_key(egui::Modifiers::CTRL,egui::Key::A)) {
-            if let Some(pane)=pane_key.as_ref().and_then(|key|self.views[kit_id].browser.folder_browsers.get_mut(key)) {pane.selection.all();pane.selected_tag=pane.selection.focus.clone();}
-            ctx.request_repaint();return;
+        if ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+            if let Some(key) = &pane_key {
+                if let Some(pane) = self.views[kit_id].browser.folder_browsers.get_mut(key) {
+                    pane.selection.clear();
+                    pane.selected_tag = None;
+                }
+            } else {
+                self.views[kit_id].browser.selected_tag = None;
+            }
+            if let Some((id, _)) = owner {
+                ctx.memory_mut(|memory| memory.request_focus(id));
+            }
+            reset_browser_navigation_selection(ctx);
+            ctx.request_repaint();
+            return;
         }
-        let text=ctx.input(|input|if input.modifiers.ctrl||input.modifiers.command||input.modifiers.alt {String::new()}else{input.events.iter().filter_map(|event|if let egui::Event::Text(text)=event {Some(text.as_str())}else{None}).collect::<String>()});
-        let navigation=ctx.input(|input|input.events.iter().find_map(|event|match event {egui::Event::Key{key:key@(egui::Key::ArrowUp|egui::Key::ArrowDown|egui::Key::ArrowLeft|egui::Key::ArrowRight|egui::Key::Home|egui::Key::End|egui::Key::PageUp|egui::Key::PageDown|egui::Key::Enter|egui::Key::Delete),pressed:true,modifiers,..} if !modifiers.ctrl&&!modifiers.command&&!modifiers.alt=>Some((*key,modifiers.shift)),_=>None}));
-        if !text.is_empty() || navigation.is_some_and(|(key,_)|!matches!(key,egui::Key::Enter|egui::Key::Delete)) {
-            let target=if !text.is_empty() {ctx.input_mut(|input|input.events.retain(|event|!matches!(event,egui::Event::Text(_))));type_browser_selection(ctx,&text)}else{let (key,shift)=navigation.unwrap();ctx.input_mut(|input|{input.consume_key(if shift{egui::Modifiers::SHIFT}else{egui::Modifiers::NONE},key);});browser_navigation_extend(ctx,shift&&multiple);move_browser_selection(ctx,key)};
-            if let Some((key,id))=target {
-                if let Some(pane)=pane_key.as_ref().and_then(|key|self.views[kit_id].browser.folder_browsers.get_mut(key)) {pane.selected_tag=Some(key);}else{self.views[kit_id].browser.selected_tag=Some(key);}
-                if let Some((_,bounds))=owner {ctx.data_mut(|data|data.insert_temp(browser_selection_owner_id(),(id,bounds)));}ctx.memory_mut(|memory|memory.request_focus(id));
-            }return;
-        }
-        if let Some((key,_))=navigation.filter(|(key,_)|matches!(key,egui::Key::Enter|egui::Key::Delete)) {
-            ctx.input_mut(|input|{input.consume_key(egui::Modifiers::NONE,key);});
-            if let Some(pane_key)=pane_key {
-                // The pane may have closed since it was last clicked.
-                let Some(pane)=self.views[kit_id].browser.folder_browsers.get(&pane_key) else{return};
-                let keys=if multiple {pane.selection.ordered_keys()}else{current.into_iter().collect()};
-                if key==egui::Key::Delete && !multiple {return;}
+        if multiple
+            && ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::F2))
+        {
+            if let Some(pane_key) = pane_key {
+                let Some(pane) = self.views[kit_id].browser.folder_browsers.get(&pane_key) else {
+                    return;
+                };
+                let keys = pane.selection.ordered_keys();
                 self.focus_kit(index);
-                self.begin_browser_bulk(pane_key,keys,if key==egui::Key::Delete{BulkAction::Delete}else{BulkAction::Open},ctx);
-            } else if key==egui::Key::Enter {
-                if let Some(folder)=selected_browser_folder(ctx) {self.apply_browser_command(BrowserCommand::Action{kit:kit_id,action:BrowserAction::OpenFolderBrowser{rel_path:folder.path,label:folder.label,open_in_new_tab:false}},ctx);}
-                else if let Some(key)=current {self.apply_browser_command(BrowserCommand::Action{kit:kit_id,action:BrowserAction::Select(key)},ctx);}
-            }return;
+                self.begin_browser_bulk(pane_key, keys, BulkAction::Rename, ctx);
+            }
+            return;
         }
-
+        if multiple
+            && ctx.input_mut(|input| {
+                input.consume_key(egui::Modifiers::COMMAND, egui::Key::A)
+                    || input.consume_key(egui::Modifiers::CTRL, egui::Key::A)
+            })
+        {
+            if let Some(pane) = pane_key
+                .as_ref()
+                .and_then(|key| self.views[kit_id].browser.folder_browsers.get_mut(key))
+            {
+                pane.selection.all();
+                pane.selected_tag = pane.selection.focus.clone();
+            }
+            ctx.request_repaint();
+            return;
+        }
+        let text = ctx.input(|input| {
+            if input.modifiers.ctrl || input.modifiers.command || input.modifiers.alt {
+                String::new()
+            } else {
+                input
+                    .events
+                    .iter()
+                    .filter_map(|event| {
+                        if let egui::Event::Text(text) = event {
+                            Some(text.as_str())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<String>()
+            }
+        });
+        let navigation = ctx.input(|input| {
+            input.events.iter().find_map(|event| match event {
+                egui::Event::Key {
+                    key:
+                        key @ (egui::Key::ArrowUp
+                        | egui::Key::ArrowDown
+                        | egui::Key::ArrowLeft
+                        | egui::Key::ArrowRight
+                        | egui::Key::Home
+                        | egui::Key::End
+                        | egui::Key::PageUp
+                        | egui::Key::PageDown
+                        | egui::Key::Enter
+                        | egui::Key::Delete),
+                    pressed: true,
+                    modifiers,
+                    ..
+                } if !modifiers.ctrl && !modifiers.command && !modifiers.alt => {
+                    Some((*key, modifiers.shift))
+                }
+                _ => None,
+            })
+        });
+        if !text.is_empty()
+            || navigation
+                .is_some_and(|(key, _)| !matches!(key, egui::Key::Enter | egui::Key::Delete))
+        {
+            let target = if !text.is_empty() {
+                ctx.input_mut(|input| {
+                    input
+                        .events
+                        .retain(|event| !matches!(event, egui::Event::Text(_)))
+                });
+                type_browser_selection(ctx, &text)
+            } else {
+                let (key, shift) = navigation.unwrap();
+                ctx.input_mut(|input| {
+                    input.consume_key(
+                        if shift {
+                            egui::Modifiers::SHIFT
+                        } else {
+                            egui::Modifiers::NONE
+                        },
+                        key,
+                    );
+                });
+                browser_navigation_extend(ctx, shift && multiple);
+                move_browser_selection(ctx, key)
+            };
+            if let Some((key, id)) = target {
+                if let Some(pane) = pane_key
+                    .as_ref()
+                    .and_then(|key| self.views[kit_id].browser.folder_browsers.get_mut(key))
+                {
+                    pane.selected_tag = Some(key);
+                } else {
+                    self.views[kit_id].browser.selected_tag = Some(key);
+                }
+                if let Some((_, bounds)) = owner {
+                    ctx.data_mut(|data| {
+                        data.insert_temp(browser_selection_owner_id(), (id, bounds))
+                    });
+                }
+                ctx.memory_mut(|memory| memory.request_focus(id));
+            }
+            return;
+        }
+        if let Some((key, _)) =
+            navigation.filter(|(key, _)| matches!(key, egui::Key::Enter | egui::Key::Delete))
+        {
+            ctx.input_mut(|input| {
+                input.consume_key(egui::Modifiers::NONE, key);
+            });
+            if let Some(pane_key) = pane_key {
+                // The pane may have closed since it was last clicked.
+                let Some(pane) = self.views[kit_id].browser.folder_browsers.get(&pane_key) else {
+                    return;
+                };
+                let keys = if multiple {
+                    pane.selection.ordered_keys()
+                } else {
+                    current.into_iter().collect()
+                };
+                if key == egui::Key::Delete && !multiple {
+                    return;
+                }
+                self.focus_kit(index);
+                self.begin_browser_bulk(
+                    pane_key,
+                    keys,
+                    if key == egui::Key::Delete {
+                        BulkAction::Delete
+                    } else {
+                        BulkAction::Open
+                    },
+                    ctx,
+                );
+            } else if key == egui::Key::Enter {
+                if let Some(folder) = selected_browser_folder(ctx) {
+                    self.apply_browser_command(
+                        BrowserCommand::Action {
+                            kit: kit_id,
+                            action: BrowserAction::OpenFolderBrowser {
+                                rel_path: folder.path,
+                                label: folder.label,
+                                open_in_new_tab: false,
+                            },
+                        },
+                        ctx,
+                    );
+                } else if let Some(key) = current {
+                    self.apply_browser_command(
+                        BrowserCommand::Action {
+                            kit: kit_id,
+                            action: BrowserAction::Select(key),
+                        },
+                        ctx,
+                    );
+                }
+            }
+            return;
+        }
     }
 
     /// Rebuild `kit`'s resolved favorite entries from the saved paths for its
@@ -293,11 +511,22 @@ impl Baboon {
     ) {
         self.remap_favorites_for_folders(kit,old_to_new_keys,&moved_folder.into_iter().collect::<Vec<_>>());
     }
-    pub(in crate::app) fn remap_favorites_for_folders(&mut self,kit:usize,old_to_new_keys:&HashMap<String,String>,moved_folders:&[(&Path,&Path)]) {
+    pub(in crate::app) fn remap_favorites_for_folders(
+        &mut self,
+        kit: usize,
+        old_to_new_keys: &HashMap<String, String>,
+        moved_folders: &[(&Path, &Path)],
+    ) {
         let Some(root) = self.model.loaded_tags_root_for(kit) else {
             return;
         };
-        if let Some(recents) = self.model.prefs.editing_kit_recents.iter_mut().find(|kit| same_recent_path(&kit.tags_root, &root)) {
+        if let Some(recents) = self
+            .model
+            .prefs
+            .editing_kit_recents
+            .iter_mut()
+            .find(|kit| same_recent_path(&kit.tags_root, &root))
+        {
             remap_favorite_paths(&root, &mut recents.tags, old_to_new_keys);
         }
         self.refresh_recent_entries_for(kit);
@@ -309,33 +538,41 @@ impl Baboon {
             &mut self.model.prefs.editing_kit_favorites[index].tags,
             old_to_new_keys,
         );
-        for (from,to) in moved_folders {
-            remap_favorite_folders(&mut self.model.prefs.editing_kit_favorites[index].folders, from, to);
+        for (from, to) in moved_folders {
+            remap_favorite_folders(
+                &mut self.model.prefs.editing_kit_favorites[index].folders,
+                from,
+                to,
+            );
             let mut unique_folders: Vec<PathBuf> = Vec::new();
-            self.model.prefs.editing_kit_favorites[index].folders.retain(|path| {
-                if unique_folders
+            self.model.prefs.editing_kit_favorites[index]
+                .folders
+                .retain(|path| {
+                    if unique_folders
+                        .iter()
+                        .any(|existing| same_recent_path(existing, path))
+                    {
+                        false
+                    } else {
+                        unique_folders.push(path.clone());
+                        true
+                    }
+                });
+        }
+        let mut unique: Vec<PathBuf> = Vec::new();
+        self.model.prefs.editing_kit_favorites[index]
+            .tags
+            .retain(|path| {
+                if unique
                     .iter()
                     .any(|existing| same_recent_path(existing, path))
                 {
                     false
                 } else {
-                    unique_folders.push(path.clone());
+                    unique.push(path.clone());
                     true
                 }
             });
-        }
-        let mut unique: Vec<PathBuf> = Vec::new();
-        self.model.prefs.editing_kit_favorites[index].tags.retain(|path| {
-            if unique
-                .iter()
-                .any(|existing| same_recent_path(existing, path))
-            {
-                false
-            } else {
-                unique.push(path.clone());
-                true
-            }
-        });
         self.refresh_favorite_entries_for(kit);
     }
 
@@ -569,9 +806,17 @@ impl Baboon {
         self.open_file_with(path, |mut command| command.spawn().map(drop));
     }
 
-    fn open_file_with(&mut self, path: PathBuf, spawn: impl FnOnce(Command) -> std::io::Result<()>) {
+    fn open_file_with(
+        &mut self,
+        path: PathBuf,
+        spawn: impl FnOnce(Command) -> std::io::Result<()>,
+    ) {
         if !path.is_file() {
-            self.model.status = format!("Could not open {}: file no longer exists at {}", file_manager_name(), path.display());
+            self.model.status = format!(
+                "Could not open {}: file no longer exists at {}",
+                file_manager_name(),
+                path.display()
+            );
             return;
         }
         self.model.status = match spawn(file_revealer(&path)) {
@@ -2084,23 +2329,52 @@ mod tests {
         let mut app = Baboon::for_test();
         let mut launched = None;
         app.open_file_with(path.clone(), |command| {
-            launched = Some((command.get_program().to_owned(), command.get_args().map(ToOwned::to_owned).collect::<Vec<_>>()));
+            launched = Some((
+                command.get_program().to_owned(),
+                command
+                    .get_args()
+                    .map(ToOwned::to_owned)
+                    .collect::<Vec<_>>(),
+            ));
             Ok(())
         });
         let expected = if cfg!(windows) {
-            ("explorer.exe", vec![std::ffi::OsString::from("/select,"), path.clone().into_os_string()])
+            (
+                "explorer.exe",
+                vec![
+                    std::ffi::OsString::from("/select,"),
+                    path.clone().into_os_string(),
+                ],
+            )
         } else if cfg!(target_os = "macos") {
-            ("open", vec![std::ffi::OsString::from("-R"), path.clone().into_os_string()])
+            (
+                "open",
+                vec![
+                    std::ffi::OsString::from("-R"),
+                    path.clone().into_os_string(),
+                ],
+            )
         } else {
-            ("xdg-open", vec![path.parent().unwrap().as_os_str().to_owned()])
+            (
+                "xdg-open",
+                vec![path.parent().unwrap().as_os_str().to_owned()],
+            )
         };
         assert_eq!(launched, Some((expected.0.into(), expected.1)));
         assert!(app.model.status.starts_with("Opened "));
         let mut launched = false;
-        app.open_file_with(path.join("missing"), |_| { launched = true; Ok(()) });
+        app.open_file_with(path.join("missing"), |_| {
+            launched = true;
+            Ok(())
+        });
         assert!(!launched);
         assert!(app.model.status.contains("file no longer exists"));
-        app.open_file_with(path, |_| Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "launch denied")));
+        app.open_file_with(path, |_| {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "launch denied",
+            ))
+        });
         assert!(app.model.status.contains("launch denied"));
     }
 
