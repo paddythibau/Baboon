@@ -4,8 +4,9 @@
 /// Where a path-like piece of script text sits.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Place {
-    /// Argument `index` (from 0) of a call to `function`.
-    Argument { function: String, index: usize },
+    /// Argument `index` (from 0) of a call to `function`, which is passed
+    /// `count` arguments in all (`None` when the call never closes).
+    Argument { function: String, index: usize, count: Option<usize> },
     /// The value of `(global <value_type> name value)`.
     GlobalValue { value_type: String },
     /// Code whose expected type cannot be read from its surroundings: the
@@ -42,6 +43,9 @@ struct Frame {
     arguments: usize,
     /// For `(global <type> …)`: the declared type.
     global_type: Option<String>,
+    /// Tokens (in the output) that are this call's arguments, to be told the
+    /// call's argument count when it closes.
+    tokens: Vec<usize>,
 }
 
 impl Frame {
@@ -68,7 +72,7 @@ impl Frame {
             },
             // Declarations: their bodies are any expression.
             "script" => Place::Unknown,
-            function => Place::Argument { function: function.to_owned(), index },
+            function => Place::Argument { function: function.to_owned(), index, count: None },
         };
         Some(place)
     }
@@ -101,6 +105,25 @@ fn text_runs(script: &[u8], start: usize, end: usize, line_at: &dyn Fn(usize) ->
         }
         if has_separator(&script[run_start..run_end]) {
             out.push(PathToken { start: run_start, end: run_end, line: line_at(run_start), place: Place::Text });
+        }
+    }
+}
+
+/// Add `token`, noting it with its call when it is an argument.
+fn push(out: &mut Vec<PathToken>, stack: &mut [Frame], token: PathToken) {
+    if matches!(token.place, Place::Argument { .. })
+        && let Some(frame) = stack.last_mut()
+    {
+        frame.tokens.push(out.len());
+    }
+    out.push(token);
+}
+
+/// A call has closed: tell its argument tokens how many arguments it had.
+fn close(frame: Frame, out: &mut [PathToken]) {
+    for token in frame.tokens {
+        if let Place::Argument { count, .. } = &mut out[token].place {
+            *count = Some(frame.arguments);
         }
     }
 }
@@ -141,7 +164,9 @@ pub(super) fn path_tokens(script: &[u8]) -> Vec<PathToken> {
                 at += 1;
             }
             b')' => {
-                stack.pop();
+                if let Some(frame) = stack.pop() {
+                    close(frame, &mut out);
+                }
                 at += 1;
             }
             b'"' => {
@@ -155,7 +180,7 @@ pub(super) fn path_tokens(script: &[u8]) -> Vec<PathToken> {
                 // could be the front of a longer spaced path, so they are
                 // neither reported nor edited.
                 if has_separator(inner) && inner.iter().all(|byte| is_path_byte(*byte) || *byte == b' ') {
-                    out.push(PathToken { start, end, line: line_at(start), place: place.unwrap_or(Place::Unknown) });
+                    push(&mut out, &mut stack, PathToken { start, end, line: line_at(start), place: place.unwrap_or(Place::Unknown) });
                 }
                 at = (end + 1).min(len);
             }
@@ -169,7 +194,7 @@ pub(super) fn path_tokens(script: &[u8]) -> Vec<PathToken> {
                 let text = std::str::from_utf8(atom).ok();
                 let place = stack.last_mut().map_or(Some(Place::Unknown), |frame| frame.element(text));
                 if has_separator(atom) {
-                    out.push(PathToken { start, end: at, line: line_at(start), place: place.unwrap_or(Place::Unknown) });
+                    push(&mut out, &mut stack, PathToken { start, end: at, line: line_at(start), place: place.unwrap_or(Place::Unknown) });
                 }
             }
         }
@@ -188,8 +213,8 @@ mod tests {
             .collect()
     }
 
-    fn argument(function: &str, index: usize) -> Place {
-        Place::Argument { function: function.to_owned(), index }
+    fn argument(function: &str, index: usize, count: usize) -> Place {
+        Place::Argument { function: function.to_owned(), index, count: Some(count) }
     }
 
     #[test]
@@ -198,8 +223,8 @@ mod tests {
         assert_eq!(
             places(script),
             [
-                ("objects\\characters\\hunter\\hunter".to_owned(), 2, argument("custom_animation", 1)),
-                ("objects\\characters\\elite\\elite".to_owned(), 3, argument("render_model_predict", 0)),
+                ("objects\\characters\\hunter\\hunter".to_owned(), 2, argument("custom_animation", 1, 4)),
+                ("objects\\characters\\elite\\elite".to_owned(), 3, argument("render_model_predict", 0, 2)),
             ]
         );
     }
@@ -232,8 +257,8 @@ mod tests {
         assert_eq!(
             places(script),
             [
-                ("effects\\damage effects\\guaranteed plummet to untimely death".to_owned(), 1, argument("effect_new", 0)),
-                ("sound\\dialog\\monitor\\monitor humming".to_owned(), 2, argument("sound_impulse_start", 0)),
+                ("effects\\damage effects\\guaranteed plummet to untimely death".to_owned(), 1, argument("effect_new", 0, 2)),
+                ("sound\\dialog\\monitor\\monitor humming".to_owned(), 2, argument("sound_impulse_start", 0, 3)),
             ]
         );
     }
@@ -242,7 +267,7 @@ mod tests {
     fn a_nested_call_takes_up_its_argument_position() {
         assert_eq!(
             places("(object_create_anew_containing (foo) \"a\\b\")"),
-            [("a\\b".to_owned(), 1, argument("object_create_anew_containing", 1))]
+            [("a\\b".to_owned(), 1, argument("object_create_anew_containing", 1, 2))]
         );
     }
 }

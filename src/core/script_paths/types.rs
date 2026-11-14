@@ -115,11 +115,22 @@ impl Signatures {
         self.functions.entry(name.to_ascii_lowercase()).or_default().push(arguments);
     }
 
-    /// What argument `index` of `function` expects. Overloads must agree.
-    pub fn expected(&self, function: &str, index: usize) -> Expected {
+    /// What argument `index` of `function` expects, in a call passing
+    /// `count` arguments when known. Only overloads taking that many are
+    /// considered (all of them if none do), and those must agree.
+    pub fn expected(&self, function: &str, index: usize, count: Option<usize>) -> Expected {
         let Some(overloads) = self.functions.get(function) else {
             return Expected::Unknown;
         };
+        let takes = |arguments: &Vec<String>, count: usize| match arguments.last() {
+            Some(last) if last.ends_with("(s)") => count + 1 >= arguments.len(),
+            _ => count == arguments.len(),
+        };
+        let fitting: Vec<_> = match count {
+            Some(count) => overloads.iter().filter(|arguments| takes(arguments, count)).collect(),
+            None => Vec::new(),
+        };
+        let overloads: Vec<_> = if fitting.is_empty() { overloads.iter().collect() } else { fitting };
         let mut found: Option<Expected> = None;
         for arguments in overloads {
             let value_type = match arguments.get(index) {
@@ -214,15 +225,15 @@ mod tests {
     #[test]
     fn halo_2_signatures_say_what_each_tag_argument_expects() {
         let signatures = Signatures::for_game(GameId::Halo2);
-        let kind = |function: &str, index| match signatures.expected(function, index) {
+        let kind = |function: &str, index| match signatures.expected(function, index, None) {
             Expected::Tag { kind, .. } => Some(kind),
             _ => None,
         };
         assert_eq!(kind("custom_animation", 1), Some(TagKind::Groups(&["model_animation_graph", "model_animations"])));
         assert_eq!(kind("object_type_predict", 0), Some(TagKind::Objects));
         assert_eq!(kind("sound_impulse_start", 0), Some(TagKind::Groups(&["sound"])));
-        assert_eq!(signatures.expected("custom_animation", 2), Expected::NotTag);
-        assert_eq!(signatures.expected("no_such_function", 0), Expected::Unknown);
+        assert_eq!(signatures.expected("custom_animation", 2, None), Expected::NotTag);
+        assert_eq!(signatures.expected("no_such_function", 0, None), Expected::Unknown);
     }
 
     #[test]
@@ -231,8 +242,36 @@ mod tests {
         signatures.add("pick", "(<void> pick <sound>)");
         signatures.add("pick", "(<void> pick <effect>)");
         signatures.add("many", "(<void> many <short> <object_definition(s)>)");
-        assert_eq!(signatures.expected("pick", 0), Expected::Unknown);
-        assert!(matches!(signatures.expected("many", 4), Expected::Tag { kind: TagKind::Objects, .. }));
+        assert_eq!(signatures.expected("pick", 0, None), Expected::Unknown);
+        assert!(matches!(signatures.expected("many", 4, None), Expected::Tag { kind: TagKind::Objects, .. }));
+    }
+
+    /// Overloads that disagree are told apart by how many arguments the call
+    /// passes; a count no overload takes leaves them all in play.
+    #[test]
+    fn the_argument_count_picks_the_overload() {
+        let mut signatures = Signatures::default();
+        signatures.add("play", "(<void> play <sound>)");
+        signatures.add("play", "(<void> play <effect> <short>)");
+        signatures.add("many", "(<void> many <short> <object_definition(s)>)");
+        let kind = |index, count| match signatures.expected("play", index, count) {
+            Expected::Tag { kind, .. } => Some(kind),
+            _ => None,
+        };
+        assert_eq!(kind(0, Some(1)), Some(TagKind::Groups(&["sound"])));
+        assert_eq!(kind(0, Some(2)), Some(TagKind::Groups(&["effect"])));
+        assert_eq!(kind(0, Some(5)), None, "no overload takes five");
+        assert_eq!(kind(0, None), None);
+        assert!(matches!(signatures.expected("many", 3, Some(4)), Expected::Tag { kind: TagKind::Objects, .. }));
+
+        // Reach's cs_custom_animation takes its graph first, or third after
+        // an AI and a flag.
+        let reach = Signatures::for_game(GameId::HaloReach);
+        let graph = |index, count| {
+            matches!(reach.expected("cs_custom_animation", index, Some(count)), Expected::Tag { kind: TagKind::Groups(groups), .. } if groups.contains(&"model_animation_graph"))
+        };
+        assert!(graph(0, 3) && graph(0, 4) && graph(2, 5) && graph(2, 6));
+        assert_eq!(reach.expected("cs_custom_animation", 0, None), Expected::Unknown, "uncounted, the overloads disagree");
     }
 
     #[test]

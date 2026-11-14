@@ -592,7 +592,7 @@ impl<'a> Resolver<'a> {
         for token in hs::path_tokens(text) {
             let Ok(written) = std::str::from_utf8(token.text(text)) else { continue };
             let expected = match &token.place {
-                Place::Argument { function, index } => self.signatures.expected(function, *index),
+                Place::Argument { function, index, count } => self.signatures.expected(function, *index, *count),
                 Place::GlobalValue { value_type } => types::classify(value_type),
                 Place::Unknown => Expected::Unknown,
                 Place::Text => Expected::NotTag,
