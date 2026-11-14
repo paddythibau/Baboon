@@ -24,6 +24,13 @@ pub(crate) fn key_identity(key: &str) -> String {
     key.replace('/', "\\").to_ascii_lowercase()
 }
 
+/// Which file `path` names, as [`key_identity`] has it: separators and ASCII
+/// letter case aside, as tag paths compare. For telling paths apart; never
+/// saved.
+pub(crate) fn path_identity(path: &std::path::Path) -> String {
+    key_identity(&path.to_string_lossy())
+}
+
 /// Whether two keys are spelled the same, separators aside: a saved key is
 /// reused only when it still matches the file's letter case.
 pub(crate) fn same_spelling(a: &str, b: &str) -> bool {

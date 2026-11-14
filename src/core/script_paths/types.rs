@@ -2,11 +2,11 @@
 //! function signatures, and which tag groups that type accepts.
 
 use std::collections::{HashMap, HashSet};
-use std::io::Read;
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::core::game::GameId;
+use crate::core::group_definitions::GroupDefinitions;
 
 /// The tag groups a script value type accepts.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -82,14 +82,15 @@ impl Signatures {
         cache
             .entry(game)
             .or_insert_with(|| {
-                let path = crate::core::bundled::locate_help_docs_root().join("script_docs.sqlite3");
+                let path = crate::core::bundled::locate_help_docs_root().join(crate::core::bundled::SCRIPT_DOCS_FILE);
                 Arc::new(Self::load(&path, game.as_str()).unwrap_or_default())
             })
             .clone()
     }
 
     fn load(path: &Path, game: &str) -> Option<Signatures> {
-        let connection = rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
+        // Docs with another schema are read as none: every argument Unknown.
+        let connection = crate::core::bundled::open_script_docs(path).ok()?;
         let mut statement = connection.prepare("SELECT name, signature FROM functions WHERE game_id = ?1").ok()?;
         let rows = statement
             .query_map([game], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
@@ -159,63 +160,24 @@ fn same_kind(a: &Expected, b: &Expected) -> bool {
     }
 }
 
-/// Every object group in `game`: the groups whose parent chain reaches
-/// `object`, read from the definitions' `parent_tag`.
+/// Every object group in `game`: `object`, and the groups whose parent chain
+/// reaches it.
 pub(super) fn object_groups(game: GameId) -> Arc<HashSet<String>> {
     static CACHE: OnceLock<Mutex<HashMap<GameId, Arc<HashSet<String>>>>> = OnceLock::new();
     let mut cache = CACHE.get_or_init(Default::default).lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     cache
         .entry(game)
         .or_insert_with(|| {
-            let folder = crate::core::bundled::locate_definitions_root().join(game.as_str());
-            Arc::new(read_object_groups(&folder))
+            let definitions = GroupDefinitions::for_game(game);
+            let mut objects: HashSet<String> = definitions
+                .groups()
+                .filter(|group| definitions.ancestors(group).0.iter().any(|parent| parent.tag == "obje"))
+                .map(|group| group.name.clone())
+                .collect();
+            objects.insert("object".to_owned());
+            Arc::new(objects)
         })
         .clone()
-}
-
-fn read_object_groups(folder: &Path) -> HashSet<String> {
-    let mut parents = HashMap::new();
-    let Ok(listing) = std::fs::read_dir(folder) else {
-        return HashSet::new();
-    };
-    for entry in listing.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
-            continue;
-        }
-        let Some(group) = path.file_stem().and_then(|stem| stem.to_str()) else { continue };
-        if group.starts_with('_') {
-            continue;
-        }
-        // `parent_tag` sits near the top of a definition; the rest can be
-        // megabytes.
-        let mut head = Vec::with_capacity(4096);
-        if std::fs::File::open(&path).and_then(|file| file.take(4096).read_to_end(&mut head)).is_err() {
-            continue;
-        }
-        let head = String::from_utf8_lossy(&head);
-        let value = |key: &str| head.split(&format!("\"{key}\"")).nth(1).and_then(|rest| rest.split('"').nth(1)).map(str::to_owned);
-        // Parents are named by their four-character group tag.
-        if let Some(tag) = value("tag") {
-            parents.insert(tag, (group.to_owned(), value("parent_tag")));
-        }
-    }
-    let mut objects = HashSet::new();
-    for (name, parent) in parents.values() {
-        let mut parent = parent.as_deref();
-        for _ in 0..16 {
-            match parent {
-                Some("obje") => {
-                    objects.insert(name.clone());
-                    break;
-                }
-                Some(tag) => parent = parents.get(tag).and_then(|(_, parent)| parent.as_deref()),
-                None => break,
-            }
-        }
-    }
-    objects.insert("object".to_owned());
-    objects
 }
 
 #[cfg(test)]

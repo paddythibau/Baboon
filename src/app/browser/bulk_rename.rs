@@ -33,9 +33,7 @@ struct PreviewRow {
     error: Option<String>,
     changed: bool,
 }
-fn path_key(path: &Path) -> String {
-    path.to_string_lossy().replace('/', "\\").to_lowercase()
-}
+use crate::core::tag_key::path_identity as path_key;
 
 /// Substitutions never parse the inserted name again: a literal token in an
 /// existing filename must remain a literal part of that filename.

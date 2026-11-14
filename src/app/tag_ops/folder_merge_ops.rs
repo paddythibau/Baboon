@@ -157,7 +157,7 @@ fn validate_rename_roots(root:&Path,roots:&[(PathBuf,PathBuf)],same_folder:bool)
         if resolved==canonical_root||!resolved.starts_with(&canonical_root) {return Err("Every selected item must be inside the tags folder".into());}
         if same_folder && source.parent()!=target.parent() {return Err("Rename must keep every selected item in its current folder".into());}
         if !same_folder && (!target.starts_with(root)||target.starts_with(source)) {return Err("Choose a destination inside the tags folder, and not inside the item itself".into());}
-        if !destinations.insert(target.to_string_lossy().to_lowercase()) {return Err("Several items would have the same name; no files changed".into());}
+        if !destinations.insert(crate::core::tag_key::path_identity(target)) {return Err("Several items would have the same name; no files changed".into());}
         if disk::matching_path(target)?.is_some() {return Err(format!("A destination already exists: {}. No files changed.",target.display()));}
         if roots.iter().any(|(other,_)|other!=source&&source.starts_with(other)) {return Err("Select either a folder or its contents, not both".into());}
     }

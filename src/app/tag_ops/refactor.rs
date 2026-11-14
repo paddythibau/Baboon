@@ -839,7 +839,7 @@ pub(in crate::app) fn run_folder_refactor_job_inner(
     if move_folder {
         // Tag paths ignore case, so a sibling differing only in case is a
         // conflict too: both folders would claim the same references.
-        if destination.exists() || sibling_differing_in_case(&destination).is_some() {
+        if crate::core::folder_merge::matching_path(&destination)?.is_some() {
             return Err(format!("Destination already exists: {}", destination.display()));
         }
         if new_name.is_some()
@@ -859,7 +859,7 @@ pub(in crate::app) fn run_folder_refactor_job_inner(
         if context.control.cancelled() { return Err("Folder operation cancelled; no files changed".into()); }
         context.control.begin_apply()?;
     }
-    if destination.exists() || sibling_differing_in_case(&destination).is_some() {
+    if crate::core::folder_merge::matching_path(&destination)?.is_some() {
         return Err(format!("Destination already exists: {}", destination.display()));
     }
 

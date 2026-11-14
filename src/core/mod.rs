@@ -10,6 +10,7 @@ pub(crate) mod document;
 pub(crate) mod format;
 pub(crate) mod folder_merge;
 pub(crate) mod game;
+pub(crate) mod group_definitions;
 pub(crate) mod ce_pixel_shader;
 pub(crate) mod h2_pixel_shader;
 pub(crate) mod hlsl;

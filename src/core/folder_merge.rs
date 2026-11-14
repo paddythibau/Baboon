@@ -337,9 +337,7 @@ impl Inventory {
     }
 }
 
-fn path_key(path: &Path) -> String {
-    path.to_string_lossy().to_ascii_lowercase()
-}
+use crate::core::tag_key::path_identity as path_key;
 
 pub(crate) fn snapshot(roots: &[PathBuf], cancelled: &impl Fn()->bool) -> Result<BTreeMap<PathBuf,Fingerprint>,String> {
     let mut result=BTreeMap::new(); for root in roots {result.extend(tree(root,cancelled)?);} Ok(result)

@@ -423,24 +423,36 @@ fn collect(
     Ok(copies)
 }
 
-/// A scenario's saved script copies: element index, name and text.
-fn scenario_sources(tag: &TagFile) -> Vec<(usize, String, Vec<u8>)> {
+/// A scenario's `source files` block: each element's name and script text
+/// (empty when it holds none), in block order. `None` when the tag has no
+/// such block. Shared with the script export and import.
+pub(crate) fn scenario_source_files(tag: &TagFile) -> Option<Vec<(String, Vec<u8>)>> {
     let root = tag.root();
-    let Some(block) = root.field_path("source files").and_then(|field| field.as_block()) else {
-        return Vec::new();
-    };
-    (0..block.len())
-        .filter_map(|index| {
-            let element = block.element(index)?;
-            let name = match element.field_path("name")?.value()? {
-                TagFieldData::String(name) | TagFieldData::LongString(name) => name,
-                _ => return None,
-            };
-            match element.field_path("source")?.value()? {
-                TagFieldData::Data(text) => Some((index, name, text)),
-                _ => None,
-            }
-        })
+    let block = root.field_path("source files").and_then(|field| field.as_block())?;
+    Some(
+        (0..block.len())
+            .filter_map(|index| block.element(index))
+            .map(|element| {
+                let name = element.read_string("name").unwrap_or_default();
+                let source = match element.field_path("source").and_then(|field| field.value()) {
+                    Some(TagFieldData::Data(data)) => data,
+                    _ => Vec::new(),
+                };
+                (name, source)
+            })
+            .collect(),
+    )
+}
+
+/// A scenario's saved script copies that hold text: element index, name and
+/// text.
+fn scenario_sources(tag: &TagFile) -> Vec<(usize, String, Vec<u8>)> {
+    scenario_source_files(tag)
+        .unwrap_or_default()
+        .into_iter()
+        .enumerate()
+        .filter(|(_, (_, text))| !text.is_empty())
+        .map(|(index, (name, text))| (index, name, text))
         .collect()
 }
 
