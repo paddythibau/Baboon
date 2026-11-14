@@ -149,7 +149,9 @@ pub(super) fn verdict(drag: &DraggedItems, kit: KitId, folder: &str, writable: b
 #[derive(Clone)]
 struct Hint {
     frame: u64,
-    verdict: Result<String, String>,
+    /// `None` over the items' own folder: claimed, but no target, so the
+    /// label stays neutral.
+    verdict: Option<Result<String, String>>,
 }
 
 fn hint_id() -> egui::Id {
@@ -183,15 +185,18 @@ pub(in crate::app) fn drop_target(
     let folder_text = folder_path(folder);
     let verdict = verdict(&drag, kit, &folder_text, writable, copy);
     // The items' own folder is no target at all: no outline, no reason, and
-    // a release there does nothing, as anywhere else.
+    // a release there does nothing. It still claims the frame, so the pane
+    // behind its row (showing the folder above) doesn't take the drop and
+    // move the items up a level.
     if verdict.as_ref().is_err_and(|reason| reason == ALREADY_HERE) {
+        ctx.data_mut(|data| data.insert_temp(hint_id(), Hint { frame, verdict: None }));
         return None;
     }
     if verdict.is_ok() {
         painter.rect_stroke(rect.shrink(1.0), 3.0, Stroke::new(1.5, foundation_blue()), egui::StrokeKind::Inside);
     }
     let allowed = verdict.is_ok();
-    ctx.data_mut(|data| data.insert_temp(hint_id(), Hint { frame, verdict }));
+    ctx.data_mut(|data| data.insert_temp(hint_id(), Hint { frame, verdict: Some(verdict) }));
     if !ctx.input(|input| input.pointer.any_released()) {
         return None;
     }
@@ -276,7 +281,7 @@ pub(in crate::app) fn refuse_drop(ctx: &egui::Context, over: bool, reason: &str)
     if claimed || !over || !egui::DragAndDrop::has_payload_of_type::<DraggedItems>(ctx) {
         return;
     }
-    ctx.data_mut(|data| data.insert_temp(hint_id(), Hint { frame, verdict: Err(reason.to_owned()) }));
+    ctx.data_mut(|data| data.insert_temp(hint_id(), Hint { frame, verdict: Some(Err(reason.to_owned())) }));
 }
 
 /// Once a frame, after the panes and tabs: while a Flat view drag is under
@@ -290,7 +295,7 @@ pub(in crate::app) fn draw_drag_label(ctx: &egui::Context) {
     let frame = ctx.cumulative_frame_nr();
     let hint = ctx.data(|data| data.get_temp::<Hint>(hint_id())).filter(|hint| hint.frame == frame);
     let copy = is_copy(ctx);
-    let (text, cursor, error) = match hint.map(|hint| hint.verdict) {
+    let (text, cursor, error) = match hint.and_then(|hint| hint.verdict) {
         Some(Ok(text)) => (text, if copy { egui::CursorIcon::Copy } else { egui::CursorIcon::Grabbing }, false),
         Some(Err(reason)) => (reason, egui::CursorIcon::NotAllowed, true),
         None => {
@@ -388,21 +393,24 @@ mod tests {
     }
 
     /// Every drag starts over the items' own folder; that is no target, so
-    /// the label stays neutral there instead of saying why it can't drop.
+    /// the label stays neutral there instead of saying why it can't drop. Its
+    /// row in a pane showing the folder above still claims the pointer, so
+    /// that pane doesn't take the drop and move the items up a level.
     #[test]
     fn the_items_own_folder_is_quietly_no_target() {
         let ctx = egui::Context::default();
         let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::splat(50.0));
-        let mut dropped = Some(());
+        let mut dropped = Vec::new();
         let _ = crate::app::run_ui_test(&ctx, egui::RawInput::default(), |ui| {
-            egui::DragAndDrop::set_payload(ui.ctx(), drag(&[(r"objects\a.model", false)]));
-            dropped = drop_target(ui.ctx(), ui.painter(), true, rect, KitId(1), Path::new("objects"), true).map(|_| ());
-            // A folder elsewhere still gets its say.
-            assert!(drop_target(ui.ctx(), ui.painter(), true, rect, KitId(2), Path::new("other"), true).is_none());
+            egui::DragAndDrop::set_payload(ui.ctx(), drag(&[(r"objects\weapons\a.model", false)]));
+            // The `weapons` row, then the `objects` pane behind it.
+            for folder in [r"objects\weapons", "objects"] {
+                dropped.push(drop_target(ui.ctx(), ui.painter(), true, rect, KitId(1), Path::new(folder), true).is_some());
+            }
         });
-        assert!(dropped.is_none());
-        let hint = ctx.data(|data| data.get_temp::<Hint>(hint_id())).expect("the other folder's reason");
-        assert_eq!(hint.verdict.unwrap_err(), "Drop onto a folder in the same kit", "not {ALREADY_HERE}");
+        assert_eq!(dropped, [false, false]);
+        let hint = ctx.data(|data| data.get_temp::<Hint>(hint_id())).expect("the row claims the pointer");
+        assert!(hint.verdict.is_none(), "a neutral label, not {ALREADY_HERE} or the pane's Move");
     }
 
     /// The navigation pane, Tree and Groups tabs and Asset Browsers say why
@@ -411,7 +419,7 @@ mod tests {
     fn places_without_drops_say_why_unless_a_target_already_spoke() {
         let ctx = egui::Context::default();
         let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::splat(50.0));
-        let reason = || ctx.data(|data| data.get_temp::<Hint>(hint_id())).map(|hint| hint.verdict);
+        let reason = || ctx.data(|data| data.get_temp::<Hint>(hint_id())).and_then(|hint| hint.verdict);
         let _ = crate::app::run_ui_test(&ctx, egui::RawInput::default(), |ui| {
             egui::DragAndDrop::set_payload(ui.ctx(), drag(&[(r"objects\a.model", false)]));
             refuse_drop(ui.ctx(), false, DROP_IN_FLAT_VIEW);
