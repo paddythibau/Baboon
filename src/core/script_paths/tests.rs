@@ -274,3 +274,63 @@ fn a_folder_of_tags_is_searched_for_once_by_its_folder() {
         ["objects/heretic/", r"objects\heretic\", "objects/heretic_grunt/", r"objects\heretic_grunt\"]
     );
 }
+
+/// Halo CE tag paths hold spaces. A quoted spaced path is one path: deleting
+/// its tag is reported, and renaming a tag whose path is only its front
+/// (`monitor` within `monitor humming`) leaves it alone.
+#[test]
+fn halo_ce_paths_with_spaces_are_whole_paths() {
+    const DAMAGE: &str = r"effects\damage effects\guaranteed plummet to untimely death.damage_effect";
+    const MONITOR: &str = r"sound\dialog\monitor\monitor.sound";
+    const HUMMING: &str = r"sound\dialog\monitor\monitor humming.sound";
+    const CE_SCRIPT: &str = r#"(script static void fall
+	(damage_new "effects\damage effects\guaranteed plummet to untimely death" fall_flag))
+(script static void hum
+	(sound_impulse_start "sound\dialog\monitor\monitor humming" none 1))
+"#;
+
+    let base = crate::core::test_kits::unique_temp_dir("script-paths-ce-spaces");
+    let tags = base.join("HCEEK").join("tags");
+    let mut entries = Vec::new();
+    for display in [DAMAGE, MONITOR, HUMMING] {
+        let path = tags.join(tag_path::to_relative(display));
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, b"").unwrap();
+        entries.push(TagEntry {
+            key: display.to_ascii_lowercase(),
+            display_path: display.to_owned(),
+            group_tag: 0,
+            group_name: tag_path::split_extension(display).map(|(_, group)| group.to_owned()),
+            location: TagEntryLocation::LooseFile(path),
+        });
+    }
+    let script_path = base.join("HCEEK").join("data").join("levels").join("c20").join("scripts").join("c20main.hsc");
+    fs::create_dir_all(script_path.parent().unwrap()).unwrap();
+    fs::write(&script_path, CE_SCRIPT).unwrap();
+    let source =
+        TagSource::LooseFolder { root: tags.clone(), game: Some(GameId::HaloCe), definitions_root: locate_definitions_root() };
+    let kit = ScriptKit { tags_root: &tags, game: GameId::HaloCe, source: &source, entries: &entries };
+
+    let deleted = check_scripts(&kit, &ScriptChanges::deleting([DAMAGE]), &|| false).unwrap();
+    assert_eq!(outcomes(&deleted), [(2, Outcome::Missing, None)], "the spaced path is reported");
+
+    let monitor = ScriptChanges::renaming([(MONITOR, Some(r"sound\dialog\monitor\monitor_v2"))]);
+    assert!(check_scripts(&kit, &monitor, &|| false).unwrap().scripts.is_empty());
+    let mut transaction = Transaction::new().unwrap();
+    let summary = fix_scripts(&kit, &monitor, &|path| path.to_path_buf(), &mut transaction).unwrap();
+    transaction.commit();
+    assert_eq!(summary, ScriptFixSummary::default());
+    assert_eq!(fs::read_to_string(&script_path).unwrap(), CE_SCRIPT, "`monitor humming` is not `monitor`");
+
+    let humming = ScriptChanges::renaming([(HUMMING, Some(r"sound\dialog\monitor\monitor hum"))]);
+    let mut transaction = Transaction::new().unwrap();
+    let summary = fix_scripts(&kit, &humming, &|path| path.to_path_buf(), &mut transaction).unwrap();
+    transaction.commit();
+    assert_eq!(summary.fixed, 1);
+    assert_eq!(
+        fs::read_to_string(&script_path).unwrap(),
+        CE_SCRIPT.replace("monitor humming", "monitor hum"),
+        "the whole spaced path is rewritten"
+    );
+    let _ = fs::remove_dir_all(&base);
+}

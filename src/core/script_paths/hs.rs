@@ -82,8 +82,7 @@ fn has_separator(bytes: &[u8]) -> bool {
     bytes.iter().any(|byte| matches!(byte, b'\\' | b'/'))
 }
 
-/// Path-like runs within free text (a comment, or a string that is more than
-/// one path), as [`Place::Text`].
+/// Path-like runs within a comment, as [`Place::Text`].
 fn text_runs(script: &[u8], start: usize, end: usize, line_at: &dyn Fn(usize) -> usize, out: &mut Vec<PathToken>) {
     let mut at = start;
     while at < end {
@@ -150,12 +149,13 @@ pub(super) fn path_tokens(script: &[u8]) -> Vec<PathToken> {
                 let end = script[start..].iter().position(|byte| *byte == b'"').map_or(len, |found| start + found);
                 let place = stack.last_mut().map_or(Some(Place::Unknown), |frame| frame.element(None));
                 let inner = &script[start..end];
-                if has_separator(inner) {
-                    if inner.iter().all(|byte| is_path_byte(*byte)) {
-                        out.push(PathToken { start, end, line: line_at(start), place: place.unwrap_or(Place::Unknown) });
-                    } else {
-                        text_runs(script, start, end, &line_at, &mut out);
-                    }
+                // Tag paths can hold spaces (Halo CE ships hundreds), so a
+                // quoted string of path characters and spaces is one path. A
+                // string holding anything else is prose; its path-like pieces
+                // could be the front of a longer spaced path, so they are
+                // neither reported nor edited.
+                if has_separator(inner) && inner.iter().all(|byte| is_path_byte(*byte) || *byte == b' ') {
+                    out.push(PathToken { start, end, line: line_at(start), place: place.unwrap_or(Place::Unknown) });
                 }
                 at = (end + 1).min(len);
             }
@@ -213,14 +213,27 @@ mod tests {
     }
 
     #[test]
-    fn comments_and_sentences_are_text() {
-        let script = "; uses objects\\characters\\grunt\\grunt.\n;* block\n mentions objects/a/b *;\n(print \"move objects\\x\\y now\")";
+    fn comments_are_text_and_prose_strings_are_skipped() {
+        let script = "; uses objects\\characters\\grunt\\grunt.\n;* block\n mentions objects/a/b *;\n(print \"move objects\\x\\y, now\")";
         assert_eq!(
             places(script),
             [
                 ("objects\\characters\\grunt\\grunt".to_owned(), 1, Place::Text),
                 ("objects/a/b".to_owned(), 3, Place::Text),
-                ("objects\\x\\y".to_owned(), 4, Place::Text),
+            ]
+        );
+    }
+
+    /// Halo CE tag paths hold spaces; a quoted one is a single path, never
+    /// split into word pieces.
+    #[test]
+    fn a_quoted_path_with_spaces_is_one_path() {
+        let script = "(effect_new \"effects\\damage effects\\guaranteed plummet to untimely death\" flag)\n(sound_impulse_start \"sound\\dialog\\monitor\\monitor humming\" none 1)";
+        assert_eq!(
+            places(script),
+            [
+                ("effects\\damage effects\\guaranteed plummet to untimely death".to_owned(), 1, argument("effect_new", 0)),
+                ("sound\\dialog\\monitor\\monitor humming".to_owned(), 2, argument("sound_impulse_start", 0)),
             ]
         );
     }
