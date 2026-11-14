@@ -185,19 +185,21 @@ pub(super) fn verdict(
     if !copy && drag.items.iter().all(|item| parent(item) == lower) {
         return Err(ALREADY_HERE.into());
     }
-    let what = match drag.items.as_slice() {
-        [item] => tag_path::name(&item.path).to_owned(),
-        items => format!("{} items", items.len()),
-    };
     let target = if folder.is_empty() {
         "the tags folder".to_owned()
     } else {
         tag_path::name(folder).to_owned()
     };
-    Ok(format!(
-        "{} {what} to {target}",
-        if copy { "Copy" } else { "Move" }
-    ))
+    Ok(format!("{} to {target}", if copy { "Copy" } else { "Move" }))
+}
+
+/// What is being dragged, as the text above the pointer says it: the tag or
+/// folder's name, or how many items.
+fn dragged_name(drag: &DraggedItems) -> String {
+    match drag.items.as_slice() {
+        [item] => tag_path::name(&item.path).to_owned(),
+        items => format!("{} items", items.len()),
+    }
 }
 
 /// Shown beside the pointer this frame by [`draw_drag_label`]: the target's
@@ -410,34 +412,30 @@ pub(in crate::app) fn draw_drag_label(ctx: &egui::Context) {
         .data(|data| data.get_temp::<Hint>(hint_id()))
         .filter(|hint| hint.frame == frame);
     let copy = is_copy(ctx);
-    let (text, cursor, error) = match hint.and_then(|hint| hint.verdict) {
-        Some(Ok(text)) => (
-            text,
-            if copy {
-                egui::CursorIcon::Copy
-            } else {
-                egui::CursorIcon::Grabbing
-            },
-            false,
-        ),
-        Some(Err(reason)) => (reason, egui::CursorIcon::NotAllowed, true),
-        None => {
-            let what = match drag.items.as_slice() {
-                [item] => tag_path::name(&item.path).to_owned(),
-                items => format!("{} items", items.len()),
-            };
-            (
-                format!("{} {what}", if copy { "Copy" } else { "Move" }),
-                egui::CursorIcon::Grabbing,
-                false,
-            )
-        }
+    let verdict = hint.and_then(|hint| hint.verdict);
+    ctx.set_cursor_icon(match &verdict {
+        Some(Err(_)) => egui::CursorIcon::NotAllowed,
+        Some(Ok(_)) if copy => egui::CursorIcon::Copy,
+        _ => egui::CursorIcon::Grabbing,
+    });
+    // What is dragged, as plain text above the pointer, and what dropping
+    // here would do, boxed below it: apart, so the box can never cover the
+    // name, whichever is drawn last.
+    egui::Area::new(egui::Id::unique("browser_drag_name"))
+        .order(egui::Order::Tooltip)
+        .pivot(egui::Align2::LEFT_BOTTOM)
+        .fixed_pos(pointer + egui::vec2(16.0, -6.0))
+        .interactable(false)
+        .show(ctx, |ui| {
+            ui.add(egui::Label::new(RichText::new(dragged_name(&drag)).color(text_dark())).extend());
+        });
+    // Nothing to say away from a target.
+    let Some(verdict) = verdict else {
+        return;
     };
-    ctx.set_cursor_icon(cursor);
-    let color = if error {
-        ctx.global_style().visuals.error_fg_color
-    } else {
-        text_dark()
+    let (text, color) = match verdict {
+        Ok(text) => (text, text_dark()),
+        Err(reason) => (reason, ctx.global_style().visuals.error_fg_color),
     };
     // The action's icon first: Move, or Copy while Ctrl is held. Red with
     // the reason when the drop isn't allowed.
@@ -487,14 +485,14 @@ mod tests {
         }
     }
 
-    /// The label beside the pointer: the action's icon, then what dropping
-    /// would do. Ctrl turns Move into Copy.
+    /// Above the pointer, what is dragged; below it, boxed, the action's icon
+    /// and where the drop goes. Ctrl turns Move into Copy.
     #[test]
     fn the_drag_label_leads_with_the_action_icon() {
         let ctx = egui::Context::default();
         // As the app does: icons are rasterized by its SVG loader.
         crate::app::Baboon::configure_context(&ctx);
-        let frame = |ctrl: bool| {
+        let frame = |ctrl: bool, over_target: bool| {
             let modifiers = if ctrl {
                 egui::Modifiers::CTRL
             } else {
@@ -518,6 +516,10 @@ mod tests {
                         ui.ctx(),
                         drag(&[("a.model", false), ("b.model", false)]),
                     );
+                    if over_target {
+                        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::splat(300.0));
+                        let _ = drop_target(ui.ctx(), ui.painter(), true, rect, KitId(1), Path::new("objects"), true);
+                    }
                     draw_drag_label(ui.ctx());
                 },
             );
@@ -536,12 +538,18 @@ mod tests {
         };
         // An egui area measures itself on its first pass and paints from
         // the next.
-        frame(false);
-        let (texts, icon) = frame(false);
-        assert!(texts.iter().any(|text| text == "Move 2 items"), "{texts:?}");
+        frame(false, true);
+        let (texts, icon) = frame(false, true);
+        assert!(texts.contains(&"2 items".to_owned()), "what is dragged, above: {texts:?}");
+        assert!(texts.contains(&"Move to objects".to_owned()), "{texts:?}");
         assert!(icon, "no icon painted beside the label");
-        let (texts, _) = frame(true);
-        assert!(texts.iter().any(|text| text == "Copy 2 items"), "{texts:?}");
+        frame(true, true);
+        let (texts, _) = frame(true, true);
+        assert!(texts.contains(&"Copy to objects".to_owned()), "{texts:?}");
+        // Away from any target, only what is dragged.
+        let (texts, icon) = frame(false, false);
+        assert_eq!(texts, ["2 items"]);
+        assert!(!icon);
     }
 
     /// Every drag starts over the items' own folder; that is no target, so
@@ -616,7 +624,7 @@ mod tests {
         });
         assert_eq!(
             reason(),
-            Some(Ok("Move a.model to other".to_owned())),
+            Some(Ok("Move to other".to_owned())),
             "the folder under the pointer wins"
         );
     }
@@ -664,15 +672,15 @@ mod tests {
         let covenant = r"objects\characters\covenant";
         assert_eq!(
             verdict(&one, KitId(1), covenant, true, false).unwrap(),
-            "Move grunt.biped to covenant"
+            "Move to covenant"
         );
         assert_eq!(
             verdict(&some, KitId(1), covenant, true, true).unwrap(),
-            "Copy 2 items to covenant"
+            "Copy to covenant"
         );
         assert_eq!(
             verdict(&some, KitId(1), "", true, false).unwrap(),
-            "Move 2 items to the tags folder"
+            "Move to the tags folder"
         );
         assert_eq!(
             verdict(&one, KitId(2), covenant, true, false).unwrap_err(),
@@ -697,7 +705,7 @@ mod tests {
         );
         assert_eq!(
             verdict(&some, KitId(1), here, true, true).unwrap(),
-            "Copy 2 items to characters",
+            "Copy to characters",
             "copying in place duplicates"
         );
     }

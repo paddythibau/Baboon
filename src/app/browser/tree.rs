@@ -2880,7 +2880,9 @@ pub(in crate::app) fn draw_entry(
             paint_browser_selection_border(ui, row_rect);
         }
     }
+    // A Flat view drag names what it carries in its own drag label.
     if response.dragged()
+        && !egui::DragAndDrop::has_payload_of_type::<super::drag_move::DraggedItems>(ui.ctx())
         && let Some(pointer_pos) = ui.ctx().pointer_interact_pos()
     {
         egui::Area::new(ui.make_persistent_id(("tag_tree_drag_preview", &entry.key)))

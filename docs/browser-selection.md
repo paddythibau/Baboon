@@ -110,8 +110,10 @@ You can drop onto:
 
 Dragging out of Tree view still only sets references; moving starts in Flat view.
 
-A blue outline marks where the items will land, and a label beside the pointer,
-led by a Move or Copy icon, says what will happen ("Move 3 items to covenant").
+Above the pointer, plain text names what is dragged: the tag or folder, or
+"3 items". A blue outline marks where the items will land, and a boxed label
+below the pointer, led by a Move or Copy icon, says what will happen ("Move to
+covenant"); away from any target there is no box. The two never overlap.
 Where a drop isn't allowed, the cursor shows "not allowed" and the label says
 why, in red: a folder can't go inside itself, and drops into another kit or a
 read-only kit are refused. Asset Browsers say "Drop onto a folder in Flat
