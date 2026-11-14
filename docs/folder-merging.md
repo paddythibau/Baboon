@@ -1,9 +1,5 @@
 # Folder merging
 
-This implements Stage 2 of the File Management design agreed in this chat after
-the grilling session. The original Notion Quick Note is background, not the final
-specification.
-
 - Move and Copy stay inside the current kit's tags directory. Matching folders
   merge recursively, including non-tag files and empty folders.
 - Review source, destination, file counts and conflicts before merging into an
@@ -32,6 +28,14 @@ Use the browser folder menu's **Move Folder To** or **Copy Folder To** action,
 and choose the destination parent. The incoming folder keeps its name; when
 that name is already present, the review opens. Rename Folder retains its
 existing-name validation.
+
+Every move and rename shares the same rollback journal, whether it is a bulk
+operation, a drag, Move Folder To into a new folder, or a single tag or folder
+Rename or Move: if a referring tag or script can't be written, the files,
+references and scripts all go back as they were. A tag Baboon can't read, and so
+can't check for references, stops a move or rename before anything changes.
+A Copy into a new folder leaves the originals alone, so a copied tag whose
+references can't be rewritten is reported and kept.
 
 Conflicts are reviewed before any files change. A cancelled review creates no
 recovery batches. On success, overwritten destinations remain in Deleted Tags

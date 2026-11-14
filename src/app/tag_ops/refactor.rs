@@ -621,172 +621,31 @@ pub(in crate::app) fn run_tag_rename_job(
             new_path.display()
         ));
     }
-
-    // The one rewrite: old reference path → new reference path (same group).
-    let old_ref = reference_path_from_abs_file(&root, &old_path, entry.group_tag, &names)
-        .ok_or_else(|| "Could not resolve the tag's reference path".to_owned())?;
-    let new_ref = reference_path_from_abs_file(&root, &new_path, entry.group_tag, &names)
-        .ok_or_else(|| "Could not resolve the destination reference path".to_owned())?;
-    let mut rewrites = HashMap::new();
-    rewrites.insert((entry.group_tag, old_ref.to_ascii_lowercase()), new_ref);
-
-    let dependency_source = TagSource::LooseFolder {
-        root: root.clone(),
-        game: game.clone(),
-        definitions_root: locate_definitions_root(),
-    };
-    let (all_entries_before, index, mut index_changes) = prepare_tag_refactor_index(
-        &root, &dependency_source, game, &names, &all_entries_before,
-        existing_reverse_dependencies, &label, tx,
-    )?;
-    let mut reverse_dependencies = Some(index);
-    if !all_entries_before.iter().any(|current| current.key == entry.key && current.group_tag == entry.group_tag) {
+    if !all_entries_before.is_empty()
+        && !all_entries_before.iter().any(|current| current.key == entry.key && current.group_tag == entry.group_tag)
+    {
         return Err("The source tag changed or disappeared; refresh the browser and try again".into());
     }
-    let dependency_schema_path = game
-        .map(|game| {
-            locate_definitions_root()
-                .join(game.as_str())
-                .join("tag_dependency_list.json")
-        })
-        .filter(|path| path.is_file());
-
-    // The moved entry, post-rename.
-    let new_display = tag_path::relative_tag_path(new_path.strip_prefix(&root).unwrap_or(&new_path));
-    let new_entry = TagEntry {
-        key: file_entry_key(&new_path),
-        display_path: new_display,
-        group_tag: entry.group_tag,
-        group_name: entry.group_name.clone(),
-        location: TagEntryLocation::LooseFile(new_path.clone()),
-    };
-    let old_entries = vec![entry.clone()];
-    let new_entries = vec![new_entry.clone()];
-
-    // Script paths first, so a script that can't be written stops the move
-    // before anything changes. Dropping `scripts` undoes them if the move
-    // fails.
-    send_folder_refactor_progress(tx, &label, "Checking scripts", None);
-    let (scripts, script_summary) = super::script_fixes::fix_before_move(
-        &root, game, &all_entries_before, &super::script_fixes::renames(&old_entries, &new_entries),
-    )?;
-
-    // Move the file on disk.
-    if let Some(parent) = new_path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("Could not create {}: {error}", parent.display()))?;
-    }
-    fs::rename(&old_path, &new_path).map_err(|error| {
-        format!(
-            "Could not move {} to {}: {error}",
-            old_path.display(),
-            new_path.display()
-        )
-    })?;
-    scripts.commit();
-
-    // Rewrite references in the affected (referring) tags.
-    let rewrite_entries = affected_move_rewrite_entries(
-        &all_entries_before,
-        &old_entries,
-        &new_entries,
-        &rewrites,
-        reverse_dependencies.as_ref(),
-    );
-    send_folder_refactor_progress(
+    // Journalled like every bulk operation: a referrer or script that can't
+    // be rewritten undoes the move.
+    super::folder_merge_ops::run_reviewed_move(
+        root,
+        old_path,
+        new_path,
+        label,
+        names,
+        game,
+        all_entries_before,
+        existing_reverse_dependencies,
+        super::folder_merge_ops::MergeContext::unreviewed(),
         tx,
-        &label,
-        &format!("Rewriting {} affected tag(s)", rewrite_entries.len()),
-        None,
-    );
-    let rewrite_result = rewrite_references_in_entries(
-        &dependency_source,
-        &rewrite_entries,
-        &rewrites,
-        &label,
-        tx,
-        dependency_schema_path.as_deref(),
-    )?;
-    let references_changed = rewrite_result.references_changed;
-    let tags_changed = rewrite_result.tags_changed;
-
-    // Rebuild browser tree + entry set + key map.
-    send_folder_refactor_progress(tx, &label, "Refreshing browser", None);
-    let tree = crate::core::source::build_folder_directory_tree(&root).map_err(|e| e.to_string())?;
-    let all_entries =
-        merge_refactored_entries(all_entries_before, &old_entries, &new_entries, true);
-    let mut old_to_new_keys = HashMap::new();
-    old_to_new_keys.insert(entry.key.clone(), new_entry.key.clone());
-    if let Some(index) = reverse_dependencies.as_mut() {
-        refresh_reverse_dependency_index_after_refactor(
-            index,
-            &dependency_source,
-            true,
-            &old_entries,
-            &new_entries,
-            &rewrite_result.changed_keys,
-            &all_entries,
-        );
-    }
-    index_changes.removed.push(entry.key.clone());
-    index_changes.touched.insert(new_entry.key.clone());
-    index_changes.touched.extend(rewrite_result.changed_keys.iter().cloned());
-    persist_refactor_indexes(&root, game, &all_entries, reverse_dependencies.as_ref(), &index_changes, tx);
-
-    let verb = if label.starts_with("Moving") {
-        "Moved"
-    } else {
-        "Renamed"
-    };
-    let mut status =
-        format!("{verb} tag, updated {references_changed} reference(s) in {tags_changed} tag(s)");
-    if !rewrite_result.failed.is_empty() {
-        status.push_str(&format!(
-            "; {} tag(s) could NOT be updated and may still reference the old path (see terminal)",
-            rewrite_result.failed.len()
-        ));
-    }
-    let mut lines = vec![
-        format!(
-            "{verb}: {} -> {}",
-            entry.display_path, new_entry.display_path
-        ),
-        format!("Updated {references_changed} reference(s) in {tags_changed} tag(s)"),
-    ];
-    lines.extend(rewrite_failure_lines(&rewrite_result.failed));
-    super::script_fixes::report(&script_summary, &mut status, &mut lines);
-    Ok(FolderRefactorFinished {
-        status,
-        lines,
-        tree,
-        all_entries,
-        reverse_dependencies,
-        old_to_new_keys,
-        moved: true,
-        moved_folder: None,
-        moved_folders: Vec::new(),
-    })
+    )
 }
 
 #[derive(Default)]
 pub(in crate::app) struct RefactorIndexChanges {
     pub(in crate::app) removed: Vec<String>,
     pub(in crate::app) touched: HashSet<String>,
-}
-
-/// Verify file fingerprints, then read only changed or missing dependency
-/// records. Without a saved fingerprint baseline every tag is checked once.
-pub(super) fn prepare_tag_refactor_index(
-    root: &Path,
-    source: &TagSource,
-    game: Option<GameId>,
-    names: &TagNameIndex,
-    previous_entries: &[TagEntry],
-    existing: Option<ReverseDependencyIndex>,
-    label: &str,
-    tx: &Sender<WorkerMessage>,
-) -> Result<(Vec<TagEntry>, ReverseDependencyIndex, RefactorIndexChanges), String> {
-    prepare_tag_refactor_index_cancellable(root, source, game, names, previous_entries, existing, label, tx, &|| false)
 }
 
 pub(in crate::app) fn prepare_tag_refactor_index_cancellable(
@@ -977,54 +836,49 @@ pub(in crate::app) fn run_folder_refactor_job_inner(
             return super::folder_merge_ops::run(root, source, actual_destination, move_folder, label, names, game, existing_all_entries, existing_reverse_dependencies, context, tx);
         }
     }
-    // The established no-conflict path has no review. Applying begins now.
+    if move_folder {
+        // Tag paths ignore case, so a sibling differing only in case is a
+        // conflict too: both folders would claim the same references.
+        if destination.exists() || sibling_differing_in_case(&destination).is_some() {
+            return Err(format!("Destination already exists: {}", destination.display()));
+        }
+        if new_name.is_some()
+            && scan_folder_subtree_entries(&root, &source_rel, &names).map_err(|e| e.to_string())?.is_empty()
+        {
+            return Err("No tags found in that folder".into());
+        }
+        // Journalled like every bulk operation: a referrer or script that
+        // can't be rewritten undoes the whole move.
+        let context = merge_context.unwrap_or_else(super::folder_merge_ops::MergeContext::unreviewed);
+        return super::folder_merge_ops::run_reviewed_move(
+            root, source, destination, label, names, game, existing_all_entries, existing_reverse_dependencies, context, tx,
+        );
+    }
+    // The established no-conflict copy has no review. Applying begins now.
     if let Some(context) = &merge_context {
         if context.control.cancelled() { return Err("Folder operation cancelled; no files changed".into()); }
         context.control.begin_apply()?;
     }
-    // A case-insensitive file system answers `exists` for a sibling that
-    // differs only in case, which is also a conflict as far as tag paths go:
-    // they ignore case, so both folders would claim the same references.
     if destination.exists() || sibling_differing_in_case(&destination).is_some() {
-        return Err(format!(
-            "Destination already exists: {}",
-            destination.display()
-        ));
+        return Err(format!("Destination already exists: {}", destination.display()));
     }
 
+    // A copy leaves the originals alone: a reference left unrewritten in a
+    // copied tag still names the original, which still exists.
     send_folder_refactor_progress(tx, &label, "Scanning selected folder", None);
     let old_entries =
         scan_folder_subtree_entries(&root, &source_rel, &names).map_err(|e| e.to_string())?;
-    if new_name.is_some() && old_entries.is_empty() {
-        return Err("No tags found in that folder".into());
-    }
     let rewrites =
         build_folder_reference_rewrites(&root, &source, &destination, &old_entries, &names);
-    let (all_entries_before, mut reverse_dependencies, mut index_changes) = if move_folder {
-        let dependency_source = TagSource::LooseFolder {
-            root: root.clone(), game, definitions_root: locate_definitions_root(),
-        };
-        let (entries, index, changes) = prepare_tag_refactor_index(
-            &root, &dependency_source, game, &names, &existing_all_entries,
-            existing_reverse_dependencies, &label, tx,
-        )?;
-        (entries, Some(index), changes)
-    } else {
-        let index = existing_reverse_dependencies.or_else(|| {
-            game.and_then(|game| crate::core::source::load_reverse_dependency_index(game.as_str(), &root))
-        });
-        (existing_all_entries.clone(), index, RefactorIndexChanges::default())
-    };
+    let mut reverse_dependencies = existing_reverse_dependencies.or_else(|| {
+        game.and_then(|game| crate::core::source::load_reverse_dependency_index(game.as_str(), &root))
+    });
     let dependency_schema_path = game
-        .map(|game| {
-            locate_definitions_root()
-                .join(game.as_str())
-                .join("tag_dependency_list.json")
-        })
+        .map(|game| locate_definitions_root().join(game.as_str()).join("tag_dependency_list.json"))
         .filter(|path| path.is_file());
     let rewrite_source = TagSource::LooseFolder {
         root: root.clone(),
-        game: game.clone(),
+        game,
         definitions_root: locate_definitions_root(),
     };
 
@@ -1033,115 +887,45 @@ pub(in crate::app) fn run_folder_refactor_job_inner(
             .map_err(|error| format!("Could not create {}: {error}", parent.display()))?;
     }
     let new_entries = transform_folder_entries(&root, &source, &old_entries, &destination);
-    let mut script_summary = Default::default();
-    if move_folder {
-        // Script paths first, as for one tag: dropping `scripts` undoes them
-        // if the move fails.
-        send_folder_refactor_progress(tx, &label, "Checking scripts", Some(0.1));
-        let (scripts, summary) = super::script_fixes::fix_before_move(
-            &root, game, &all_entries_before, &super::script_fixes::renames(&old_entries, &new_entries),
-        )?;
-        script_summary = summary;
-        send_folder_refactor_progress(tx, &label, "Moving files", Some(0.15));
-        fs::rename(&source, &destination).map_err(|error| {
-            format!(
-                "Could not move {} to {}: {error}",
-                source.display(),
-                destination.display()
-            )
-        })?;
-        scripts.commit();
-    } else {
-        copy_folder_recursive_progress(&source, &destination, &label, tx)?;
-    }
-
-    let rewrite_result = if move_folder {
-        let rewrite_entries = affected_move_rewrite_entries(
-            &all_entries_before,
-            &old_entries,
-            &new_entries,
-            &rewrites,
-            reverse_dependencies.as_ref(),
-        );
-        send_folder_refactor_progress(
-            tx,
-            &label,
-            &format!("Rewriting {} affected tag(s)", rewrite_entries.len()),
-            None,
-        );
-        rewrite_references_in_entries(
-            &rewrite_source,
-            &rewrite_entries,
-            &rewrites,
-            &label,
-            tx,
-            dependency_schema_path.as_deref(),
-        )?
-    } else {
-        send_folder_refactor_progress(tx, &label, "Rewriting copied references", None);
-        rewrite_references_in_entries(
-            &rewrite_source,
-            &new_entries,
-            &rewrites,
-            &label,
-            tx,
-            dependency_schema_path.as_deref(),
-        )?
-    };
+    copy_folder_recursive_progress(&source, &destination, &label, tx)?;
+    send_folder_refactor_progress(tx, &label, "Rewriting copied references", None);
+    let rewrite_result = rewrite_references_in_entries(
+        &rewrite_source,
+        &new_entries,
+        &rewrites,
+        &label,
+        tx,
+        dependency_schema_path.as_deref(),
+    )?;
     let references_changed = rewrite_result.references_changed;
     let tags_changed = rewrite_result.tags_changed;
     let failed = rewrite_result.failed.clone();
 
     send_folder_refactor_progress(tx, &label, "Refreshing browser", None);
     let tree = crate::core::source::build_folder_directory_tree(&root).map_err(|e| e.to_string())?;
-    let all_entries = if move_folder {
-        merge_refactored_entries(all_entries_before, &old_entries, &new_entries, true)
-    } else if existing_all_entries.is_empty() {
+    let all_entries = if existing_all_entries.is_empty() {
         Vec::new()
     } else {
-        merge_refactored_entries(
-            existing_all_entries,
-            &old_entries,
-            &new_entries,
-            move_folder,
-        )
-    };
-    let old_to_new_keys = if move_folder {
-        moved_key_map(&root, &source, &old_entries, &destination)
-    } else {
-        HashMap::new()
+        merge_refactored_entries(existing_all_entries, &old_entries, &new_entries, false)
     };
     if let Some(index) = reverse_dependencies.as_mut() {
-        let dependency_source = TagSource::LooseFolder {
-            root: root.clone(),
-            game: game.clone(),
-            definitions_root: locate_definitions_root(),
-        };
         refresh_reverse_dependency_index_after_refactor(
             index,
-            &dependency_source,
-            move_folder,
+            &rewrite_source,
+            false,
             &old_entries,
             &new_entries,
             &rewrite_result.changed_keys,
             &all_entries,
         );
     }
-
-    if move_folder {
-        index_changes.removed.extend(old_entries.iter().map(|entry| entry.key.clone()));
-    }
+    let mut index_changes = RefactorIndexChanges::default();
     index_changes.touched.extend(new_entries.iter().map(|entry| entry.key.clone()));
     index_changes.touched.extend(rewrite_result.changed_keys.iter().cloned());
     persist_refactor_indexes(&root, game, &all_entries, reverse_dependencies.as_ref(), &index_changes, tx);
 
-    let action = match (move_folder, new_name.is_some()) {
-        (true, true) => "Renamed",
-        (true, false) => "Moved",
-        (false, _) => "Copied",
-    };
     let mut status = format!(
-        "{action} {} tag(s), updated {} reference(s) in {} tag(s)",
+        "Copied {} tag(s), updated {} reference(s) in {} tag(s)",
         old_entries.len(),
         references_changed,
         tags_changed
@@ -1153,18 +937,12 @@ pub(in crate::app) fn run_folder_refactor_job_inner(
         ));
     }
     let mut lines = vec![format!(
-        "{action} folder: {} -> {}",
+        "Copied folder: {} -> {}",
         source.strip_prefix(&root).unwrap_or(&source).display(),
-        destination
-            .strip_prefix(&root)
-            .unwrap_or(&destination)
-            .display()
+        destination.strip_prefix(&root).unwrap_or(&destination).display()
     )];
-    lines.push(format!(
-        "Updated {references_changed} reference(s) in {tags_changed} tag(s)"
-    ));
+    lines.push(format!("Updated {references_changed} reference(s) in {tags_changed} tag(s)"));
     lines.extend(rewrite_failure_lines(&failed));
-    super::script_fixes::report(&script_summary, &mut status, &mut lines);
 
     Ok(FolderRefactorFinished {
         status,
@@ -1172,18 +950,10 @@ pub(in crate::app) fn run_folder_refactor_job_inner(
         tree,
         all_entries,
         reverse_dependencies,
-        old_to_new_keys,
-        moved: move_folder,
+        old_to_new_keys: HashMap::new(),
+        moved: false,
         moved_folders: Vec::new(),
-        moved_folder: move_folder.then(|| {
-            (
-                source_rel.clone(),
-                destination
-                    .strip_prefix(&root)
-                    .unwrap_or(&destination)
-                    .to_path_buf(),
-            )
-        }),
+        moved_folder: None,
     })
 }
 
@@ -1598,28 +1368,6 @@ pub(in crate::app) fn rewrite_references_in_tag(
     changed
 }
 
-pub(in crate::app) fn moved_key_map(
-    tags_root: &Path,
-    source: &Path,
-    old_entries: &[TagEntry],
-    destination: &Path,
-) -> HashMap<String, String> {
-    let mut map = HashMap::new();
-    for entry in old_entries {
-        let TagEntryLocation::LooseFile(old_path) = &entry.location else {
-            continue;
-        };
-        let Ok(inner_rel) = old_path.strip_prefix(source) else {
-            continue;
-        };
-        let new_path = destination.join(inner_rel);
-        if new_path.starts_with(tags_root) {
-            map.insert(entry.key.clone(), file_entry_key(&new_path));
-        }
-    }
-    map
-}
-
 #[cfg(test)]
 mod tests {
     //! Characterization of the loose-kit refactors -- tag rename and move,
@@ -1931,7 +1679,7 @@ mod tests {
         expected.sort();
         assert_eq!(dependents, expected);
         assert!(terminal(&app).contains(&format!("Renamed: {RENDER} -> {new_rel}")));
-        assert!(terminal(&app).contains(&"Updated 2 reference(s) in 2 tag(s)".to_owned()));
+        assert!(terminal(&app).contains(&"Renamed tag, updated 2 reference(s) in 2 tag(s)".to_owned()));
     }
 
     #[test]
@@ -2210,10 +1958,49 @@ mod tests {
         super::folder_rename::validate_loose_folder_rename(raw, old, &[old.to_owned()])
     }
 
-    /// A referrer that cannot be read does not stop the rename: the others are
-    /// rewritten, and the one left behind is named in the status and terminal.
+    /// A single rename is journalled like a bulk one: a referrer that can't
+    /// be written (read-only here, locked in practice) undoes the whole
+    /// rename, so the tag and every referrer are as they were.
     #[test]
-    fn a_referrer_that_cannot_be_rewritten_is_reported_and_passed_over() {
+    fn a_referrer_that_cannot_be_written_rolls_the_whole_rename_back() {
+        let kit = kit("refactor-rollback");
+        let entries = kit.entries();
+        let index = kit.index();
+        let user = kit.path(USER);
+        let mut permissions = fs::metadata(&user).unwrap().permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(&user, permissions.clone()).unwrap();
+        let entry = entries.iter().find(|entry| entry.display_path == RENDER).unwrap().clone();
+        let (tx, _rx) = std::sync::mpsc::channel();
+
+        let result = run_tag_rename_job(
+            kit.root.clone(),
+            entry,
+            "objects\\props\\crate2".to_owned(),
+            "Renaming tag".to_owned(),
+            kit.names(),
+            Some(GameId::Halo3),
+            entries,
+            Some(index),
+            &tx,
+        );
+        #[allow(clippy::permissions_set_readonly_false)]
+        permissions.set_readonly(false);
+        fs::set_permissions(&user, permissions).unwrap();
+
+        assert!(result.is_err(), "the rename is refused");
+        assert!(kit.path(RENDER).is_file(), "the tag is back where it was");
+        assert!(!kit.path("objects\\props\\crate2.render_model").exists());
+        for referrer in [MODEL, USER] {
+            assert_eq!(render_reference(&kit, referrer).as_deref(), Some("objects\\props\\crate"), "{referrer}");
+        }
+    }
+
+    /// A referrer that cannot be read stops the rename before anything
+    /// changes: it might reference the tag, and a move that left it behind
+    /// would break it. Every move is all or nothing.
+    #[test]
+    fn a_referrer_that_cannot_be_read_stops_the_rename_before_anything_changes() {
         let kit = kit("refactor-failure");
         let mode = group_tag("halo3_mcc", "render_model");
         kit.write_mcc("levels\\test\\broken", "model", |tag| {
@@ -2234,7 +2021,7 @@ mod tests {
             .clone();
         let (tx, _rx) = std::sync::mpsc::channel();
 
-        let done = run_tag_rename_job(
+        let error = run_tag_rename_job(
             kit.root.clone(),
             entry,
             "objects\\props\\crate2".to_owned(),
@@ -2245,29 +2032,14 @@ mod tests {
             Some(index),
             &tx,
         )
-        .expect("the rename itself succeeds");
+        .err()
+        .expect("refused");
 
-        assert_eq!(
-            done.status,
-            "Renamed tag, updated 2 reference(s) in 2 tag(s); 1 tag(s) could NOT be updated and \
-         may still reference the old path (see terminal)"
-        );
-        assert!(kit.path("objects\\props\\crate2.render_model").is_file());
-        assert_eq!(
-            render_reference(&kit, USER).as_deref(),
-            Some("objects\\props\\crate2")
-        );
+        assert!(error.contains(r"levels\test\broken.model") && error.contains("no files changed"), "{error}");
+        assert!(kit.path(RENDER).is_file(), "the tag stays put");
+        assert!(!kit.path("objects\\props\\crate2.render_model").exists());
+        assert_eq!(render_reference(&kit, USER).as_deref(), Some("objects\\props\\crate"), "no referrer rewritten");
         assert_eq!(fs::read(&broken).unwrap(), bytes, "the broken tag is untouched");
-        assert!(
-            done.lines
-                .iter()
-                .any(|line| line.starts_with(r"Warning: not updated: levels\test\broken.model (")),
-            "{:?}",
-            done.lines
-        );
-        assert!(done.lines.contains(
-            &"Warning: 1 tag(s) could not be updated and may still reference the old path:".to_owned()
-        ));
     }
 
     #[test]

@@ -51,20 +51,6 @@ pub(in crate::app) fn fix(
     fix_scripts(&kit, changes, relocate, transaction)
 }
 
-/// For a job without a transaction of its own: fix the scripts before its
-/// files move, in a transaction that undoes them unless committed (dropping
-/// it restores every script). Commit once the files have moved.
-pub(in crate::app) fn fix_before_move(
-    root: &Path,
-    game: Option<GameId>,
-    entries: &[TagEntry],
-    changes: &ScriptChanges,
-) -> Result<(Transaction, ScriptFixSummary), String> {
-    let mut transaction = Transaction::new()?;
-    let summary = fix(root, game, entries, changes, &|path| path.to_path_buf(), &mut transaction)?;
-    Ok((transaction, summary))
-}
-
 /// Add what fixing scripts did to a job's status and terminal lines.
 pub(in crate::app) fn report(summary: &ScriptFixSummary, status: &mut String, lines: &mut Vec<String>) {
     if summary.fixed > 0 {

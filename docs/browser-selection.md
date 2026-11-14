@@ -140,8 +140,9 @@ folder, is refused there.
 rows, folder panes, folder tab headers in `shell/tag_tiles.rs`) and the label
 beside the pointer; a drop becomes a bulk Move or Copy with its destination set.
 `core/folder_merge.rs` and `tag_ops/folder_merge_ops.rs` share the filesystem
-plan, recovery and rollback journal between existing single-folder and new
-multi-root operations. `core/script_paths` finds and rewrites tag paths in
+plan, recovery and rollback journal between single-item and multi-root
+operations: single tag and folder Rename and Move go through
+`folder_merge_ops::run_reviewed_move`. `core/script_paths` finds and rewrites tag paths in
 mission scripts; `tag_ops/script_fixes.rs` runs it for the windows (a background
 check each window owns) and the jobs (inside their rollback transaction). Recovery batches also record `original_relative_paths`.
 
